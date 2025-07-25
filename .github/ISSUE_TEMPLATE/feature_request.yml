@@ -1,0 +1,187 @@
+name: 💡 Feature Request
+description: Suggest a new feature or enhancement
+title: "[Feature]: "
+labels: ["enhancement", "needs-triage"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a new feature! 💡
+        
+        We appreciate ideas that make Cidrator better for everyone. Please provide as much detail as possible.
+
+  - type: checkboxes
+    id: prerequisites
+    attributes:
+      label: Prerequisites
+      description: Please confirm the following before submitting your feature request
+      options:
+        - label: I have searched existing issues and discussions to make sure this isn't already requested
+          required: true
+        - label: I have read the [project roadmap](https://github.com/euan-cowie/cidrator#roadmap)
+          required: true
+        - label: This feature aligns with the project's goals and scope
+          required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Feature Category
+      description: Which area does this feature relate to?
+      options:
+        - CIDR Analysis
+        - DNS Tools
+        - Network Scanning
+        - Firewall Management
+        - Output Formats
+        - Performance
+        - CLI/UX
+        - Configuration
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Feature Summary
+      description: A brief, clear description of the feature you're requesting
+      placeholder: "Add support for..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: What problem does this feature solve? What's the current limitation?
+      placeholder: |
+        Currently, users need to... but there's no way to...
+        This makes it difficult to...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: Describe your ideal solution to this problem
+      placeholder: |
+        I would like to be able to...
+        The command could work like...
+    validations:
+      required: true
+
+  - type: textarea
+    id: use-cases
+    attributes:
+      label: Use Cases
+      description: Describe specific scenarios where this feature would be useful
+      placeholder: |
+        1. As a network engineer, I need to...
+        2. When working with large networks...
+        3. For automation scripts, it would help to...
+    validations:
+      required: true
+
+  - type: textarea
+    id: examples
+    attributes:
+      label: Command Examples
+      description: Show what the new commands/flags might look like
+      render: shell
+      placeholder: |
+        # Example of how the feature might be used
+        $ cidrator cidr new-command 192.168.1.0/24 --new-flag
+        # Expected output...
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: How important is this feature to your workflow?
+      options:
+        - Low - Nice to have
+        - Medium - Would improve my workflow
+        - High - Essential for my use case
+        - Critical - Blocking my adoption/usage
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: What workarounds or alternative solutions have you considered?
+      placeholder: |
+        Currently I work around this by...
+        I've looked at other tools like... but they...
+
+  - type: textarea
+    id: implementation
+    attributes:
+      label: Implementation Ideas
+      description: If you have ideas about how this could be implemented, share them here
+      placeholder: |
+        This could potentially be implemented by...
+        It might require changes to...
+        Similar to how [other tool] does...
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope Considerations
+      description: Check all that apply to help us understand the scope
+      options:
+        - label: This would require breaking changes to existing commands
+        - label: This would require new dependencies
+        - label: This would significantly increase binary size
+        - label: This would require new external services/APIs
+        - label: This could be implemented as a plugin/extension
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform Requirements
+      description: Does this feature need to work on specific platforms?
+      options:
+        - All platforms (Linux, macOS, Windows)
+        - Linux only
+        - macOS only  
+        - Windows only
+        - Unix-like systems (Linux, macOS, FreeBSD)
+        - No specific requirements
+
+  - type: textarea
+    id: research
+    attributes:
+      label: Research & References
+      description: Links to relevant documentation, RFCs, tools, or discussions
+      placeholder: |
+        - RFC xxx: https://...
+        - Similar feature in tool X: https://...
+        - Related discussion: https://...
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      description: Would you be interested in helping implement this feature?
+      options:
+        - label: I'm willing to implement this feature
+        - label: I can help with testing and feedback
+        - label: I can help with documentation
+        - label: I can provide domain expertise/consultation
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Any other context, screenshots, mockups, or information
+      placeholder: |
+        - Screenshots or mockups if applicable
+        - Related issues or features
+        - Any other relevant information 

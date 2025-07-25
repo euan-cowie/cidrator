@@ -1,0 +1,53 @@
+project_name: cidrator
+
+before:
+  hooks:
+    - go mod tidy
+    - go generate
+
+builds:
+  - id: cidrator
+    binary: cidrator
+    env:
+      - CGO_ENABLED=0 # Disable CGO to build static binaries
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/euan-cowie/cidrator/cmd.Version={{.Version}}
+      - -X github.com/euan-cowie/cidrator/cmd.Commit={{.Commit}}
+      - -X github.com/euan-cowie/cidrator/cmd.Date={{.Date}}
+
+archives:
+  - id: cidrator
+    format: tar.gz
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+    format_overrides:
+      - goos: windows
+        format: zip
+
+checksum:
+  name_template: 'checksums.txt'
+
+snapshot:
+  name_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^ci:'
+      - '^chore:'
+      - '^build:'
