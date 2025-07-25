@@ -1,0 +1,114 @@
+name: ❓ Question / Discussion
+description: Ask a question or start a discussion
+title: "[Question]: "
+labels: ["question", "needs-triage"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for your question! ❓
+        
+        For general discussions, consider using [GitHub Discussions](https://github.com/euan-cowie/cidrator/discussions) instead.
+        Use this template for specific questions about usage, configuration, or troubleshooting.
+
+  - type: checkboxes
+    id: prerequisites
+    attributes:
+      label: Prerequisites
+      description: Please confirm you've checked these resources first
+      options:
+        - label: I have searched existing issues and discussions
+          required: true
+        - label: I have read the [documentation](https://github.com/euan-cowie/cidrator/wiki)
+          required: true
+        - label: I have checked the [FAQ](https://github.com/euan-cowie/cidrator/wiki/FAQ)
+          required: false
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Question Category
+      description: What type of question is this?
+      options:
+        - Usage Help
+        - Configuration
+        - Troubleshooting
+        - Best Practices
+        - Performance
+        - Integration
+        - Security
+        - General Discussion
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Your Question
+      description: What would you like to know?
+      placeholder: |
+        I'm trying to... but I'm not sure how to...
+        What's the best way to...?
+        Is it possible to...?
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context & Background
+      description: Provide context about what you're trying to accomplish
+      placeholder: |
+        I'm working on...
+        My goal is to...
+        I need this for...
+
+  - type: textarea
+    id: attempted
+    attributes:
+      label: What Have You Tried?
+      description: What have you already attempted?
+      placeholder: |
+        I tried...
+        I looked at...
+        I expected... but got...
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment (if relevant)
+      description: Your system setup if it's relevant to the question
+      render: yaml
+      placeholder: |
+        OS: Ubuntu 22.04
+        Cidrator version: v1.0.0
+        Installation method: go install
+        Go version: 1.21.5
+
+  - type: textarea
+    id: examples
+    attributes:
+      label: Examples (if applicable)
+      description: Code snippets, commands, or configuration examples
+      render: shell
+      placeholder: |
+        # Commands you're trying to run
+        $ cidrator cidr explain ...
+        
+        # Expected vs actual behavior
+        # Configuration files, etc.
+
+  - type: checkboxes
+    id: help
+    attributes:
+      label: How Can We Help?
+      description: What kind of response would be most helpful?
+      options:
+        - label: Explanation or clarification
+        - label: Code examples or commands
+        - label: Documentation improvements
+        - label: Best practice recommendations
+        - label: Links to relevant resources 

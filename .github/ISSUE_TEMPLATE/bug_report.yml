@@ -1,0 +1,164 @@
+name: 🐛 Bug Report
+description: Report a bug or unexpected behavior
+title: "[Bug]: "
+labels: ["bug", "needs-triage"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! 🐛
+        
+        Please fill out this form as completely as possible to help us understand and reproduce the issue.
+
+  - type: checkboxes
+    id: prerequisites
+    attributes:
+      label: Prerequisites
+      description: Please confirm the following before submitting your bug report
+      options:
+        - label: I have searched existing issues to make sure this bug hasn't been reported already
+          required: true
+        - label: I have read the [documentation](https://github.com/euan-cowie/cidrator/wiki)
+          required: true
+        - label: I can reproduce this bug consistently
+          required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of what the bug is
+      placeholder: Describe what happened and what you expected to happen
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to Reproduce
+      description: Detailed steps to reproduce the behavior
+      placeholder: |
+        1. Run command `cidrator cidr explain ...`
+        2. Use the flags `--format json`
+        3. See error...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What you expected to happen
+      placeholder: The command should have...
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened instead
+      placeholder: Instead, it...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error Output
+      description: If applicable, paste any error messages or relevant output
+      render: shell
+      placeholder: |
+        $ cidrator cidr explain invalid
+        Error: failed to parse CIDR: ...
+
+  - type: dropdown
+    id: version
+    attributes:
+      label: Cidrator Version
+      description: What version of Cidrator are you running?
+      options:
+        - Latest (main branch)
+        - v1.0.0
+        - v0.9.0
+        - v0.8.0
+        - Other (please specify in additional context)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      description: What operating system are you using?
+      options:
+        - Linux
+        - macOS
+        - Windows
+        - FreeBSD
+        - Other (please specify in additional context)
+    validations:
+      required: true
+
+  - type: input
+    id: os-version
+    attributes:
+      label: OS Version
+      description: Specific version of your operating system
+      placeholder: "e.g., Ubuntu 22.04, macOS 13.1, Windows 11"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: installation
+    attributes:
+      label: Installation Method
+      description: How did you install Cidrator?
+      options:
+        - go install
+        - Pre-built binary download
+        - Package manager (brew, apt, etc.)
+        - Built from source
+        - Docker
+        - Other (please specify in additional context)
+    validations:
+      required: true
+
+  - type: input
+    id: go-version
+    attributes:
+      label: Go Version (if applicable)
+      description: If you built from source or used `go install`, what Go version?
+      placeholder: "e.g., go1.21.5"
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Configuration
+      description: Any relevant configuration files or environment variables
+      render: yaml
+      placeholder: |
+        # Any cidrator config files or relevant environment variables
+        # Remove any sensitive information
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Add any other context about the problem here
+      placeholder: |
+        - Screenshots if applicable
+        - Related issues or discussions
+        - Any other relevant information
+
+  - type: checkboxes
+    id: help
+    attributes:
+      label: Help Us Help You
+      description: Optional ways to make this easier to debug
+      options:
+        - label: I can provide a minimal reproduction case
+        - label: I'm willing to test potential fixes
+        - label: I'm able to submit a pull request to fix this issue 

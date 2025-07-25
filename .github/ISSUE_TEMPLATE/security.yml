@@ -1,0 +1,98 @@
+name: 🔒 Security Vulnerability
+description: Report a security vulnerability (use private disclosure)
+title: "[Security]: "
+labels: ["security", "needs-triage"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## ⚠️ Security Vulnerability Reporting
+        
+        **Please DO NOT report security vulnerabilities in public issues!**
+        
+        For security vulnerabilities, please use our private disclosure process:
+        
+        ### 📧 Private Disclosure (Recommended)
+        - **Email**: [security@cidrator.dev](mailto:security@cidrator.dev)
+        - **Subject**: Security Vulnerability in Cidrator
+        
+        ### 🔒 GitHub Security Advisories
+        - Go to [Security Advisories](https://github.com/euan-cowie/cidrator/security/advisories)
+        - Click "Report a vulnerability"
+        - Fill out the private form
+        
+        ---
+        
+        **Only use this public template if you're unsure whether something is a security issue.**
+
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: ⚠️ Public Disclosure Confirmation
+      description: |
+        By continuing with this public template, you confirm that:
+      options:
+        - label: This is NOT a security vulnerability that could be exploited
+          required: true
+        - label: I am only asking whether something might be a security concern
+          required: true
+        - label: I understand security vulnerabilities should be reported privately
+          required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Security Question Category
+      description: What type of security question is this?
+      options:
+        - General security question
+        - Clarification on security best practices
+        - Question about security features
+        - Hardening recommendations
+        - Compliance/audit questions
+        - Not sure if this is a security issue
+    validations:
+      required: true
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Security Question
+      description: What is your security-related question?
+      placeholder: |
+        I'm wondering about...
+        Is it secure to...?
+        What are the security implications of...?
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Provide context about your security concerns
+      placeholder: |
+        I'm using Cidrator in an environment where...
+        I need to ensure that...
+        I'm concerned about...
+
+  - type: markdown
+    attributes:
+      value: |
+        ## 🛡️ Security Resources
+        
+        - **Security Policy**: [SECURITY.md](https://github.com/euan-cowie/cidrator/blob/main/SECURITY.md)
+        - **Security Best Practices**: [Wiki](https://github.com/euan-cowie/cidrator/wiki/Security)
+        - **Known Issues**: [Security Advisories](https://github.com/euan-cowie/cidrator/security/advisories)
+        
+        ## 🚨 If This IS a Security Vulnerability
+        
+        If you realize this is actually a security vulnerability:
+        
+        1. **Delete this issue immediately**
+        2. **Email**: [security@cidrator.dev](mailto:security@cidrator.dev)
+        3. **Include**: Detailed vulnerability description, steps to reproduce, and impact assessment
+        
+        We take security seriously and will respond to legitimate reports within 24 hours. 
