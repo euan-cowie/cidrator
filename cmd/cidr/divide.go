@@ -38,7 +38,7 @@ Note: N must be a power of 2 or the subnets will not utilize the full address sp
 		opts := cidr.DivisionOptions{
 			Parts: n,
 		}
-		
+
 		subnets, err := cidr.Divide(cidrStr, opts)
 		if err != nil {
 			return fmt.Errorf("failed to divide CIDR: %v", err)

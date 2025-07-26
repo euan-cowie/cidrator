@@ -15,7 +15,7 @@ Cidrator is a modern, fast, and feature-rich CLI tool for IPv4/IPv6 CIDR network
 
 ### 🌐 **CIDR Network Analysis** (Production Ready)
 - **📊 Explain CIDR ranges** - Detailed network information with multiple output formats (table, JSON, YAML)
-- **🔍 IP membership check** - Verify if IP addresses belong to CIDR ranges  
+- **🔍 IP membership check** - Verify if IP addresses belong to CIDR ranges
 - **🔢 Address counting** - Count total addresses in CIDR ranges with large number support
 - **⚡ Overlap detection** - Check if two CIDR ranges overlap
 - **✂️ Subnet division** - Split CIDR ranges into smaller subnets intelligently
@@ -24,7 +24,7 @@ Cidrator is a modern, fast, and feature-rich CLI tool for IPv4/IPv6 CIDR network
 
 ### 🚀 **Planned Features** (Coming Soon)
 - **🔍 DNS Tools** - DNS lookups, reverse DNS, zone analysis, performance testing
-- **🔎 Network Scanning** - Port scanning, ping sweeps, host discovery, service detection  
+- **🔎 Network Scanning** - Port scanning, ping sweeps, host discovery, service detection
 - **🛡️ Firewall Management** - Rule generation, analysis, optimization, format conversion
 
 ## 🚀 Installation
@@ -171,7 +171,7 @@ Error: CIDR range contains 16 addresses, exceeds limit of 5
 $ cidrator cidr contains 10.0.0.0/16 10.0.14.5
 true
 
-$ cidrator cidr contains 192.168.1.0/24 10.0.0.1  
+$ cidrator cidr contains 192.168.1.0/24 10.0.0.1
 false
 
 # Count addresses
@@ -347,7 +347,7 @@ cidrator/
 
 ### **Phase 1: Core CIDR** ✅ *Complete*
 - ✅ IPv4/IPv6 CIDR analysis
-- ✅ Multiple output formats  
+- ✅ Multiple output formats
 - ✅ Safety limits and validation
 - ✅ Comprehensive test coverage
 
@@ -371,51 +371,30 @@ cidrator/
 
 ## 🤝 Contributing
 
-We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details.
-
-### **Quick Start for Contributors**
+**Want to contribute? It's super easy!**
 
 ```bash
-# Clone and setup
-git clone https://github.com/euan-cowie/cidrator.git
+# 1. Fork and clone
+git clone https://github.com/YOUR_USERNAME/cidrator.git
 cd cidrator
 
-# Install dependencies
-go mod download
+# 2. One-time setup
+make setup
 
-# Run tests
-make test
+# 3. Make changes and test
+make dev
 
-# Build and test locally
-make build
-./bin/cidrator cidr explain 192.168.1.0/24
-
-# Run linting and security checks
-make check
+# 4. Submit PR
+git commit -m "feat: your change"
+git push origin your-branch
 ```
 
-### **Development**
+**That's it!** See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
-```bash
-# Available make targets
-make help          # Show all available targets
-make build         # Build for current platform
-make build-all     # Cross-compile for all platforms
-make test          # Run all tests
-make test-coverage # Generate coverage report
-make lint          # Run linting
-make fmt           # Format code
-make security      # Security scan
-make clean         # Clean build artifacts
-```
-
-### **Code Quality**
-
-- **🧪 95%+ test coverage** - Comprehensive test suite
-- **🔍 Linting** - `golangci-lint` with strict rules
-- **🛡️ Security** - `gosec` security scanning
-- **📝 Documentation** - Godoc comments for all public APIs
-- **🎯 Clean code** - Following Go best practices and clean architecture
+**Looking for something to work on?**
+- 🏷️ [`good first issue`](https://github.com/euan-cowie/cidrator/labels/good%20first%20issue) - Perfect for newcomers
+- 🚀 [`help wanted`](https://github.com/euan-cowie/cidrator/labels/help%20wanted) - Ready for contributors
+- 💡 [Discussions](https://github.com/euan-cowie/cidrator/discussions) - Share ideas
 
 ## 📝 License
 
@@ -444,4 +423,4 @@ This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) 
 
 Made with ❤️ by [Euan Cowie](https://github.com/euan-cowie) and [contributors](https://github.com/euan-cowie/cidrator/contributors)
 
-</div> 
+</div>

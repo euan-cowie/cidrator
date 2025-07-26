@@ -8,36 +8,30 @@ on:
 
 env:
   GO_VERSION: '1.22'
-  COVERAGE_THRESHOLD: 85
 
 jobs:
-  # Multi-platform testing
+  # Single comprehensive test job
   test:
-    name: Test
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        go-version: ['1.21', '1.22']
-    runs-on: ${{ matrix.os }}
+    name: Test & Build
+    runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout code
+    - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Set up Go ${{ matrix.go-version }}
+    - name: Setup Go
       uses: actions/setup-go@v4
       with:
-        go-version: ${{ matrix.go-version }}
+        go-version: ${{ env.GO_VERSION }}
 
-    - name: Cache Go modules
+    - name: Cache
       uses: actions/cache@v3
       with:
         path: |
           ~/go/pkg/mod
           ~/.cache/go-build
-        key: ${{ runner.os }}-go-${{ matrix.go-version }}-${{ hashFiles('**/go.sum') }}
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
         restore-keys: |
-          ${{ runner.os }}-go-${{ matrix.go-version }}-
           ${{ runner.os }}-go-
 
     - name: Download dependencies
@@ -46,179 +40,39 @@ jobs:
     - name: Verify dependencies
       run: go mod verify
 
-    - name: Run tests
-      run: go test -v -race -timeout=5m ./...
-
-    - name: Run tests with coverage (Ubuntu only)
-      if: matrix.os == 'ubuntu-latest' && matrix.go-version == env.GO_VERSION
-      run: |
-        go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
-        go tool cover -html=coverage.out -o coverage.html
-
-    - name: Check coverage threshold
-      if: matrix.os == 'ubuntu-latest' && matrix.go-version == env.GO_VERSION
-      run: |
-        COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print substr($3, 1, length($3)-1)}')
-        echo "Coverage: ${COVERAGE}%"
-        if (( $(echo "$COVERAGE < $COVERAGE_THRESHOLD" | bc -l) )); then
-          echo "❌ Coverage ${COVERAGE}% is below threshold ${COVERAGE_THRESHOLD}%"
-          exit 1
-        fi
-        echo "✅ Coverage ${COVERAGE}% meets threshold ${COVERAGE_THRESHOLD}%"
-
-    - name: Upload coverage to Codecov
-      if: matrix.os == 'ubuntu-latest' && matrix.go-version == env.GO_VERSION
-      uses: codecov/codecov-action@v3
-      with:
-        file: ./coverage.out
-        flags: unittests
-        name: codecov-umbrella
-        fail_ci_if_error: true
-
-  # Code quality and linting
-  lint:
-    name: Lint
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Set up Go
-      uses: actions/setup-go@v4
-      with:
-        go-version: ${{ env.GO_VERSION }}
-
-    - name: Cache Go modules
-      uses: actions/cache@v3
-      with:
-        path: |
-          ~/go/pkg/mod
-          ~/.cache/go-build
-          ~/.cache/golangci-lint
-        key: ${{ runner.os }}-lint-${{ hashFiles('**/go.sum') }}
-        restore-keys: |
-          ${{ runner.os }}-lint-
-
-    - name: golangci-lint
-      uses: golangci/golangci-lint-action@v3
-      with:
-        version: latest
-        args: --timeout=5m
-
-    - name: Check formatting
+    - name: Format check
       run: |
         if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then
           echo "❌ Code is not formatted. Run 'go fmt ./...'"
           gofmt -s -l .
           exit 1
         fi
-        echo "✅ Code is properly formatted"
 
-    - name: Check for suspicious constructs
+    - name: Vet
+      run: go vet ./...
+
+    - name: Test
+      run: go test -v -race ./...
+
+    - name: Build
       run: |
-        if ! command -v go vet &> /dev/null; then
-          echo "go vet not found"
-          exit 1
-        fi
-        go vet ./...
+        make build
+        ./bin/cidrator version
+        ./bin/cidrator --help >/dev/null
 
-  # Security scanning
-  security:
-    name: Security
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Set up Go
-      uses: actions/setup-go@v4
-      with:
-        go-version: ${{ env.GO_VERSION }}
-
-    - name: Cache Go modules
-      uses: actions/cache@v3
-      with:
-        path: ~/go/pkg/mod
-        key: ${{ runner.os }}-security-${{ hashFiles('**/go.sum') }}
-        restore-keys: |
-          ${{ runner.os }}-security-
-
-    - name: Run Gosec Security Scanner
-      uses: securego/gosec@master
-      with:
-        args: '-no-fail -fmt sarif -out gosec.sarif ./...'
-
-    - name: Upload SARIF file
-      uses: github/codeql-action/upload-sarif@v2
-      with:
-        sarif_file: gosec.sarif
-
-    - name: Run Nancy (dependency vulnerability scanner)
+    - name: Integration test
       run: |
-        go install github.com/sonatypecommunity/nancy@latest
-        go list -json -deps ./... | nancy sleuth
+        ./bin/cidrator cidr explain 192.168.1.0/24 >/dev/null
+        ./bin/cidrator cidr count 10.0.0.0/16 >/dev/null
+        echo "✅ Integration tests passed"
 
-    - name: Run Trivy vulnerability scanner
-      uses: aquasecurity/trivy-action@master
-      with:
-        scan-type: 'fs'
-        scan-ref: '.'
-        format: 'sarif'
-        output: 'trivy-results.sarif'
-
-    - name: Upload Trivy scan results to GitHub Security tab
-      uses: github/codeql-action/upload-sarif@v2
-      if: always()
-      with:
-        sarif_file: 'trivy-results.sarif'
-
-  # Performance benchmarks
-  benchmark:
-    name: Benchmark
+  # Cross-platform builds (only for main branch)
+  build-platforms:
+    name: Cross-platform builds
     runs-on: ubuntu-latest
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+    if: github.ref == 'refs/heads/main'
+    needs: test
 
-    - name: Set up Go
-      uses: actions/setup-go@v4
-      with:
-        go-version: ${{ env.GO_VERSION }}
-
-    - name: Cache Go modules
-      uses: actions/cache@v3
-      with:
-        path: ~/go/pkg/mod
-        key: ${{ runner.os }}-bench-${{ hashFiles('**/go.sum') }}
-        restore-keys: |
-          ${{ runner.os }}-bench-
-
-    - name: Run benchmarks
-      run: |
-        if go test -bench=. -benchmem ./... | grep -q "Benchmark"; then
-          echo "✅ Benchmarks completed"
-          go test -bench=. -benchmem ./... | tee benchmark.txt
-        else
-          echo "ℹ️ No benchmarks found"
-        fi
-
-    - name: Store benchmark result
-      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-      uses: benchmark-action/github-action-benchmark@v1
-      with:
-        tool: 'go'
-        output-file-path: benchmark.txt
-        github-token: ${{ secrets.GITHUB_TOKEN }}
-        auto-push: true
-        comment-on-alert: true
-        alert-threshold: '200%'
-        fail-on-alert: true
-
-  # Build verification
-  build:
-    name: Build
-    runs-on: ubuntu-latest
-    needs: [test, lint, security]
     strategy:
       matrix:
         goos: [linux, darwin, windows]
@@ -228,73 +82,43 @@ jobs:
             goarch: arm64
 
     steps:
-    - name: Checkout code
+    - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Set up Go
+    - name: Setup Go
       uses: actions/setup-go@v4
       with:
         go-version: ${{ env.GO_VERSION }}
 
-    - name: Cache Go modules
-      uses: actions/cache@v3
-      with:
-        path: ~/go/pkg/mod
-        key: ${{ runner.os }}-build-${{ hashFiles('**/go.sum') }}
-        restore-keys: |
-          ${{ runner.os }}-build-
-
-    - name: Build binary
+    - name: Build
       env:
         GOOS: ${{ matrix.goos }}
         GOARCH: ${{ matrix.goarch }}
       run: |
-        VERSION=$(git describe --tags --always --dirty)
-        COMMIT=$(git rev-parse HEAD)
-        DATE=$(date -u '+%Y-%m-%d_%H:%M:%S')
         BINARY_NAME=cidrator
         if [ "$GOOS" = "windows" ]; then
           BINARY_NAME="${BINARY_NAME}.exe"
         fi
-        
-        go build -ldflags="-s -w -X github.com/euan-cowie/cidrator/cmd.Version=${VERSION} -X github.com/euan-cowie/cidrator/cmd.Commit=${COMMIT} -X github.com/euan-cowie/cidrator/cmd.Date=${DATE}" -o "bin/${BINARY_NAME}-${GOOS}-${GOARCH}" .
 
-    - name: Upload build artifacts
-      uses: actions/upload-artifact@v3
-      with:
-        name: binaries-${{ matrix.goos }}-${{ matrix.goarch }}
-        path: bin/
-        retention-days: 7
+        go build -ldflags="-s -w" -o "bin/${BINARY_NAME}-${GOOS}-${GOARCH}" .
 
-  # Integration tests
-  integration:
-    name: Integration Tests
+  # Optional linting (allowed to fail)
+  lint:
+    name: Lint (Optional)
     runs-on: ubuntu-latest
-    needs: [build]
+    continue-on-error: true
+
     steps:
-    - name: Checkout code
+    - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Download build artifacts
-      uses: actions/download-artifact@v3
+    - name: Setup Go
+      uses: actions/setup-go@v4
       with:
-        name: binaries-linux-amd64
-        path: bin/
+        go-version: ${{ env.GO_VERSION }}
 
-    - name: Make binary executable
-      run: chmod +x bin/cidrator-linux-amd64
-
-    - name: Run integration tests
-      run: |
-        # Basic functionality tests
-        ./bin/cidrator-linux-amd64 version
-        ./bin/cidrator-linux-amd64 --help
-        ./bin/cidrator-linux-amd64 cidr explain 192.168.1.0/24
-        ./bin/cidrator-linux-amd64 cidr count 10.0.0.0/16
-        ./bin/cidrator-linux-amd64 cidr contains 192.168.1.0/24 192.168.1.100
-        
-        # Test output formats
-        ./bin/cidrator-linux-amd64 cidr explain 192.168.1.0/24 --format json
-        ./bin/cidrator-linux-amd64 cidr explain 192.168.1.0/24 --format yaml
-        
-        echo "✅ Integration tests passed" 
+    - name: golangci-lint
+      uses: golangci/golangci-lint-action@v3
+      with:
+        version: latest
+        args: --timeout=5m

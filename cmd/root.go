@@ -23,7 +23,7 @@ var rootCmd = &cobra.Command{
 Available command groups:
 - cidr: IPv4/IPv6 CIDR network analysis (explain, expand, contains, count, overlaps, divide)
 - dns: DNS analysis and lookup tools (coming soon)
-- scan: Network scanning and discovery (coming soon)  
+- scan: Network scanning and discovery (coming soon)
 - fw: Firewall rule generation and analysis (coming soon)
 
 Each command group provides specialized tools for different aspects of network operations.

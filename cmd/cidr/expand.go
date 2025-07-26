@@ -31,7 +31,7 @@ The command automatically prevents expansion of ranges larger than /16 (65,536 a
 		opts := cidr.ExpansionOptions{
 			Limit: config.Expand.Limit,
 		}
-		
+
 		ips, err := cidr.Expand(cidrStr, opts)
 		if err != nil {
 			return fmt.Errorf("failed to expand CIDR: %v", err)
@@ -47,7 +47,7 @@ func outputExpandedIPs(ips []string, cfg *ExpandConfig) error {
 		fmt.Println(strings.Join(ips, ", "))
 		return nil
 	}
-	
+
 	for _, ip := range ips {
 		fmt.Println(ip)
 	}

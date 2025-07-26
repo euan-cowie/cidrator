@@ -40,10 +40,10 @@ func (e *ValidationError) Unwrap() error {
 
 // Common error variables
 var (
-	ErrInvalidCIDR   = errors.New("invalid CIDR format")
-	ErrInvalidIP     = errors.New("invalid IP address")
-	ErrTooLarge      = errors.New("CIDR range too large for expansion")
-	ErrInvalidParts  = errors.New("invalid number of parts")
+	ErrInvalidCIDR      = errors.New("invalid CIDR format")
+	ErrInvalidIP        = errors.New("invalid IP address")
+	ErrTooLarge         = errors.New("CIDR range too large for expansion")
+	ErrInvalidParts     = errors.New("invalid number of parts")
 	ErrInsufficientBits = errors.New("insufficient host bits for division")
 )
 
@@ -80,4 +80,4 @@ func IsInvalidCIDR(err error) bool {
 func IsValidationError(err error) bool {
 	var valErr *ValidationError
 	return errors.As(err, &valErr)
-} 
+}

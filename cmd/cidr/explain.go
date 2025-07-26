@@ -102,24 +102,24 @@ func printUsableAddressRange(w *tabwriter.Writer, info *cidr.NetworkInfo) {
 // printIPv4UsableRange prints IPv4 usable address range
 func printIPv4UsableRange(w *tabwriter.Writer, info *cidr.NetworkInfo) {
 	if info.HostBits <= 1 {
-		fmt.Fprintf(w, "Usable Address Range\t%s (%s)\n",
+		_, _ = fmt.Fprintf(w, "Usable Address Range\t%s (%s)\n",
 			info.FirstUsable, cidr.FormatBigInt(info.UsableAddresses))
 		return
 	}
 
-	fmt.Fprintf(w, "Usable Address Range\t%s to %s (%s)\n",
+	_, _ = fmt.Fprintf(w, "Usable Address Range\t%s to %s (%s)\n",
 		info.FirstUsable, info.LastUsable, cidr.FormatBigInt(info.UsableAddresses))
 }
 
 // printIPv6UsableRange prints IPv6 usable address range
 func printIPv6UsableRange(w *tabwriter.Writer, info *cidr.NetworkInfo) {
 	if info.HostBits == 0 {
-		fmt.Fprintf(w, "Usable Address Range\t%s (%s)\n",
+		_, _ = fmt.Fprintf(w, "Usable Address Range\t%s (%s)\n",
 			info.FirstUsable, cidr.FormatBigInt(info.UsableAddresses))
 		return
 	}
 
-	fmt.Fprintf(w, "Usable Address Range\t%s to %s (%s)\n",
+	_, _ = fmt.Fprintf(w, "Usable Address Range\t%s to %s (%s)\n",
 		info.FirstUsable, info.LastUsable, cidr.FormatBigInt(info.UsableAddresses))
 }
 

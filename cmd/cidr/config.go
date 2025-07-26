@@ -62,4 +62,4 @@ func NewGlobalConfig() *GlobalConfig {
 			OneLine: false,
 		},
 	}
-} 
+}

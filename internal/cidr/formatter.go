@@ -32,7 +32,7 @@ func (f *JSONFormatter) Format() ([]byte, error) {
 	return json.MarshalIndent(f.data, "", "  ")
 }
 
-// YAMLFormatter handles YAML output formatting  
+// YAMLFormatter handles YAML output formatting
 type YAMLFormatter struct {
 	data *NetworkInfoOutput
 }
@@ -64,13 +64,13 @@ func NewTableFormatter(info *NetworkInfo) *TableFormatter {
 // Format returns the table representation of the network info
 func (f *TableFormatter) Format() string {
 	var buf bytes.Buffer
-	
+
 	// This would contain the table formatting logic
 	// For now, we'll return a simple string representation
 	buf.WriteString(fmt.Sprintf("CIDR: %s\n", f.info.Network.String()))
 	buf.WriteString(fmt.Sprintf("Base Address: %s\n", f.info.BaseAddress.String()))
 	buf.WriteString(fmt.Sprintf("Total Addresses: %s\n", FormatBigInt(f.info.TotalAddresses)))
-	
+
 	return buf.String()
 }
 
@@ -95,7 +95,7 @@ func (ff *FormatterFactory) CreateTableFormatter(info *NetworkInfo) *TableFormat
 // FormatAs provides a unified way to format network info in different formats
 func (info *NetworkInfo) FormatAs(format string) ([]byte, error) {
 	factory := &FormatterFactory{}
-	
+
 	switch format {
 	case "json":
 		formatter := factory.CreateJSONFormatter(info)
@@ -109,4 +109,4 @@ func (info *NetworkInfo) FormatAs(format string) ([]byte, error) {
 	default:
 		return nil, fmt.Errorf("unsupported format: %s", format)
 	}
-} 
+}

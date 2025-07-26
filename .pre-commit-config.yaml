@@ -1,6 +1,6 @@
-# Optional pre-commit hooks for Cidrator
-# Install with: make install-precommit
-# Remove with: make remove-precommit
+# Modern pre-commit hooks for Go projects
+# Install: make install-precommit
+# Remove: make remove-precommit
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -11,24 +11,19 @@ repos:
       - id: trailing-whitespace
       - id: check-merge-conflict
 
-  # Go formatting (fast and reliable)
-  - repo: local
+  - repo: https://github.com/tekwizely/pre-commit-golang
+    rev: v1.0.0-rc.1
     hooks:
-      - id: go-fmt
-        name: go fmt
-        description: "Run go fmt on Go files"
-        entry: go fmt
-        language: golang
-        types: [go]
-        args: ["./..."]
-      
-      - id: go-vet
-        name: go vet
-        description: "Run go vet on Go files"
-        entry: go vet
-        language: golang
-        types: [go]
-        args: ["./..."]
+      # Go formatting
+      - id: go-fmt-repo
+      - id: go-vet-repo-mod
+      - id: go-mod-tidy-repo
 
-# Note: golangci-lint is intentionally not included here for speed
-# Run 'make check' for full linting before committing
+  - repo: https://github.com/golangci/golangci-lint
+    rev: v1.64.8
+    hooks:
+      - id: golangci-lint
+        args: [--fast]
+
+# This is fast, reliable, and follows Go best practices
+# Most checks complete in under 10 seconds
