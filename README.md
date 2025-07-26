@@ -48,10 +48,6 @@ brew install euan-cowie/tap/cidrator
 # Arch Linux (AUR)
 yay -S cidrator-bin
 
-# Docker
-docker run --rm ghcr.io/euan-cowie/cidrator:latest cidr explain 10.0.0.0/8
-```
-
 ### **From Source**
 
 ```bash
