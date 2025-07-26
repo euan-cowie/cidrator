@@ -4,6 +4,12 @@ on:
   push:
     branches: [ main ]
 
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  id-token: write
+
 env:
   GO_VERSION: '1.22'
 
@@ -11,10 +17,6 @@ jobs:
   version:
     name: Semantic Version
     runs-on: ubuntu-latest
-    outputs:
-      new_release_published: ${{ steps.semantic.outputs.new_release_published }}
-      new_release_version: ${{ steps.semantic.outputs.new_release_version }}
-      new_release_git_tag: ${{ steps.semantic.outputs.new_release_git_tag }}
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -45,38 +47,3 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: semantic-release
-
-  update-version:
-    name: Update Version Files
-    runs-on: ubuntu-latest
-    needs: version
-    if: needs.version.outputs.new_release_published == 'true'
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-        token: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Set up Go
-      uses: actions/setup-go@v4
-      with:
-        go-version: ${{ env.GO_VERSION }}
-
-    - name: Update version in code
-      run: |
-        VERSION="${{ needs.version.outputs.new_release_version }}"
-        echo "Updating version to ${VERSION}"
-        
-        # Update version in version.go if it exists
-        if [ -f cmd/version.go ]; then
-          sed -i "s/Version = \".*\"/Version = \"${VERSION}\"/" cmd/version.go
-        fi
-
-    - name: Commit version updates
-      run: |
-        if [ -n "$(git status --porcelain)" ]; then
-          git add .
-          git commit -m "chore: update version to ${{ needs.version.outputs.new_release_version }} [skip ci]"
-          git push origin main
-        fi 
