@@ -65,9 +65,7 @@ FURY_ACCOUNT                # Fury.io account name
 ```yaml
 main:
   required_status_checks:
-    - "Test (ubuntu-latest, 1.22)"
-    - "Test (macos-latest, 1.22)"
-    - "Test (windows-latest, 1.22)"
+    - "Test & Build"
     - "Lint"
     - "Security"
     - "Build"
@@ -329,6 +327,6 @@ npx semantic-release --dry-run
 ## 📞 Support
 
 - **Documentation Issues**: Create issue with `documentation` label
-- **Workflow Problems**: Create issue with `ci/cd` label  
+- **Workflow Problems**: Create issue with `ci/cd` label
 - **Security Concerns**: Email security@cidrator.dev
-- **General Help**: Check GitHub Discussions 
+- **General Help**: Check GitHub Discussions
