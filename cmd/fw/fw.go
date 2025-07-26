@@ -1,3 +1,4 @@
+// Package fw provides the fw command for the cidrator CLI.
 package fw
 
 import (

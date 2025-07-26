@@ -7,6 +7,13 @@ import (
 	"testing"
 )
 
+func assertError(t *testing.T, got error, want bool) {
+	t.Helper()
+	if (got != nil) != want {
+		t.Errorf("got error %v, want error=%v", got, want)
+	}
+}
+
 func TestParseCIDR(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -80,15 +87,8 @@ func TestParseCIDR(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			info, err := ParseCIDR(tt.cidr)
 
+			assertError(t, err, tt.expectError)
 			if tt.expectError {
-				if err == nil {
-					t.Errorf("Expected error but got none")
-				}
-				return
-			}
-
-			if err != nil {
-				t.Errorf("Unexpected error: %v", err)
 				return
 			}
 
@@ -169,15 +169,8 @@ func TestContains(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := Contains(tt.cidr, tt.ip)
 
+			assertError(t, err, tt.hasError)
 			if tt.hasError {
-				if err == nil {
-					t.Errorf("Expected error but got none")
-				}
-				return
-			}
-
-			if err != nil {
-				t.Errorf("Unexpected error: %v", err)
 				return
 			}
 
@@ -226,15 +219,8 @@ func TestCount(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := Count(tt.cidr)
 
+			assertError(t, err, tt.hasError)
 			if tt.hasError {
-				if err == nil {
-					t.Errorf("Expected error but got none")
-				}
-				return
-			}
-
-			if err != nil {
-				t.Errorf("Unexpected error: %v", err)
 				return
 			}
 
@@ -307,15 +293,8 @@ func TestOverlaps(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := Overlaps(tt.cidr1, tt.cidr2)
 
+			assertError(t, err, tt.hasError)
 			if tt.hasError {
-				if err == nil {
-					t.Errorf("Expected error but got none")
-				}
-				return
-			}
-
-			if err != nil {
-				t.Errorf("Unexpected error: %v", err)
 				return
 			}
 
@@ -387,15 +366,8 @@ func TestDivide(t *testing.T) {
 			opts := DivisionOptions{Parts: tt.parts}
 			result, err := Divide(tt.cidr, opts)
 
+			assertError(t, err, tt.hasError)
 			if tt.hasError {
-				if err == nil {
-					t.Errorf("Expected error but got none")
-				}
-				return
-			}
-
-			if err != nil {
-				t.Errorf("Unexpected error: %v", err)
 				return
 			}
 
@@ -469,15 +441,8 @@ func TestExpand(t *testing.T) {
 			opts := ExpansionOptions{Limit: tt.limit}
 			result, err := Expand(tt.cidr, opts)
 
+			assertError(t, err, tt.hasError)
 			if tt.hasError {
-				if err == nil {
-					t.Errorf("Expected error but got none")
-				}
-				return
-			}
-
-			if err != nil {
-				t.Errorf("Unexpected error: %v", err)
 				return
 			}
 

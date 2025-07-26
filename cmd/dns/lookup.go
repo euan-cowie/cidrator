@@ -28,7 +28,7 @@ This is placeholder functionality - not yet implemented.`,
 }
 
 func init() {
-	DnsCmd.AddCommand(lookupCmd)
+	DNSCmd.AddCommand(lookupCmd)
 
 	// Add flags for DNS lookup
 	lookupCmd.Flags().StringP("type", "t", "A", "DNS record type (A, AAAA, MX, TXT, etc.)")

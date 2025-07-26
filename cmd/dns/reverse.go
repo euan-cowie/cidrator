@@ -27,5 +27,5 @@ This is placeholder functionality - not yet implemented.`,
 }
 
 func init() {
-	DnsCmd.AddCommand(reverseCmd)
+	DNSCmd.AddCommand(reverseCmd)
 }

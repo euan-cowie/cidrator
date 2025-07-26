@@ -44,7 +44,7 @@ func init() {
 
 	// Add command groups
 	rootCmd.AddCommand(cidr.CidrCmd)
-	rootCmd.AddCommand(dns.DnsCmd)
+	rootCmd.AddCommand(dns.DNSCmd)
 	rootCmd.AddCommand(scan.ScanCmd)
 	rootCmd.AddCommand(fw.FwCmd)
 

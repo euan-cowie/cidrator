@@ -17,7 +17,7 @@ var explainCmd = &cobra.Command{
 	Short: "Explain and show detailed information about a CIDR range",
 	Long: `Explain shows comprehensive information about a CIDR range including:
 - Base and broadcast addresses
-- Usable address range  
+- Usable address range
 - Number of total and usable addresses
 - Network mask and host mask
 - Prefix length and host bits
@@ -69,25 +69,25 @@ func generateOutput(info *cidr.NetworkInfo, cfg *ExplainConfig) error {
 
 func printTableFormat(info *cidr.NetworkInfo) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', 0)
-	defer w.Flush()
+	defer func() { _ = w.Flush() }()
 
-	fmt.Fprintf(w, "Property\tValue\n")
-	fmt.Fprintf(w, "--------\t-----\n")
-	fmt.Fprintf(w, "Base Address\t%s\n", info.BaseAddress)
+	_, _ = fmt.Fprintf(w, "Property\tValue\n")
+	_, _ = fmt.Fprintf(w, "--------\t-----\n")
+	_, _ = fmt.Fprintf(w, "Base Address\t%s\n", info.BaseAddress)
 
 	printUsableAddressRange(w, info)
 	printBroadcastAddress(w, info)
 
-	fmt.Fprintf(w, "Total Addresses\t%s\n", cidr.FormatBigInt(info.TotalAddresses))
-	fmt.Fprintf(w, "Network Mask\t%s (/%d bits)\n", info.Netmask, info.PrefixLength)
+	_, _ = fmt.Fprintf(w, "Total Addresses\t%s\n", cidr.FormatBigInt(info.TotalAddresses))
+	_, _ = fmt.Fprintf(w, "Network Mask\t%s (/%d bits)\n", info.Netmask, info.PrefixLength)
 
 	if !info.IsIPv6 {
-		fmt.Fprintf(w, "Host Mask\t%s\n", info.HostMask)
+		_, _ = fmt.Fprintf(w, "Host Mask\t%s\n", info.HostMask)
 	}
 
-	fmt.Fprintf(w, "Prefix Length\t/%d\n", info.PrefixLength)
-	fmt.Fprintf(w, "Host Bits\t%d\n", info.HostBits)
-	fmt.Fprintf(w, "IPv6\t%t\n", info.IsIPv6)
+	_, _ = fmt.Fprintf(w, "Prefix Length\t/%d\n", info.PrefixLength)
+	_, _ = fmt.Fprintf(w, "Host Bits\t%d\n", info.HostBits)
+	_, _ = fmt.Fprintf(w, "IPv6\t%t\n", info.IsIPv6)
 }
 
 // printUsableAddressRange prints the usable address range based on network type and host bits
@@ -128,7 +128,7 @@ func printBroadcastAddress(w *tabwriter.Writer, info *cidr.NetworkInfo) {
 	if info.IsIPv6 || info.HostBits <= 1 {
 		return
 	}
-	fmt.Fprintf(w, "Broadcast Address\t%s\n", info.BroadcastAddr)
+	_, _ = fmt.Fprintf(w, "Broadcast Address\t%s\n", info.BroadcastAddr)
 }
 
 func init() {

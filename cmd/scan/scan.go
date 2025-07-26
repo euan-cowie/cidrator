@@ -1,3 +1,4 @@
+// Package scan provides the scan command for the cidrator CLI.
 package scan
 
 import (
@@ -12,7 +13,7 @@ var ScanCmd = &cobra.Command{
 
 Planned features:
 - port: Port scanning for hosts and ranges
-- ping: ICMP ping sweeps across networks  
+- ping: ICMP ping sweeps across networks
 - arp: ARP table scanning and discovery
 - host: Host discovery and OS fingerprinting
 - service: Service detection and enumeration

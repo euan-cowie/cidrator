@@ -4,8 +4,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// DnsCmd represents the dns command
-var DnsCmd = &cobra.Command{
+// DNSCmd represents the dns command
+var DNSCmd = &cobra.Command{
 	Use:   "dns",
 	Short: "DNS analysis and manipulation tools",
 	Long: `DNS subcommand provides DNS analysis and manipulation tools.

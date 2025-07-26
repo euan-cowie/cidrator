@@ -3,6 +3,7 @@ package cidr
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -24,12 +25,12 @@ func captureCommandOutput(t *testing.T, cmd *cobra.Command, args []string) (stri
 	cmd.SetArgs(args)
 	err := cmd.Execute()
 
-	w.Close()
+	_ = w.Close()
 	os.Stdout = oldStdout
 
 	var buf bytes.Buffer
-	buf.ReadFrom(r)
-	return strings.TrimSpace(buf.String()), err
+	_, readErr := buf.ReadFrom(r)
+	return strings.TrimSpace(buf.String()), errors.Join(err, readErr)
 }
 
 // createTestCommand creates a test command with the specified configuration
@@ -170,11 +171,11 @@ func TestExplainCommand(t *testing.T) {
 			err := cmd.Execute()
 
 			// Restore stdout and read output
-			w.Close()
+			_ = w.Close()
 			os.Stdout = oldStdout
 
 			var buf bytes.Buffer
-			buf.ReadFrom(r)
+			_, _ = buf.ReadFrom(r)
 			output := buf.String()
 
 			// Check results
@@ -286,11 +287,11 @@ func TestExpandCommand(t *testing.T) {
 			err := cmd.Execute()
 
 			// Capture output
-			w.Close()
+			_ = w.Close()
 			os.Stdout = oldStdout
 
 			var buf bytes.Buffer
-			buf.ReadFrom(r)
+			_, _ = buf.ReadFrom(r)
 			output := buf.String()
 
 			// Check results
@@ -551,11 +552,11 @@ func TestDivideCommand(t *testing.T) {
 			err := cmd.Execute()
 
 			// Capture output
-			w.Close()
+			_ = w.Close()
 			os.Stdout = oldStdout
 
 			var buf bytes.Buffer
-			buf.ReadFrom(r)
+			_, _ = buf.ReadFrom(r)
 			output := buf.String()
 
 			// Check results

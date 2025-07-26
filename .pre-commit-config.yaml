@@ -1,0 +1,34 @@
+# Optional pre-commit hooks for Cidrator
+# Install with: make install-precommit
+# Remove with: make remove-precommit
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-merge-conflict
+
+  # Go formatting (fast and reliable)
+  - repo: local
+    hooks:
+      - id: go-fmt
+        name: go fmt
+        description: "Run go fmt on Go files"
+        entry: go fmt
+        language: golang
+        types: [go]
+        args: ["./..."]
+      
+      - id: go-vet
+        name: go vet
+        description: "Run go vet on Go files"
+        entry: go vet
+        language: golang
+        types: [go]
+        args: ["./..."]
+
+# Note: golangci-lint is intentionally not included here for speed
+# Run 'make check' for full linting before committing
