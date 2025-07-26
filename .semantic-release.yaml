@@ -1,0 +1,101 @@
+branches:
+  - main
+  - name: develop
+    prerelease: beta
+
+commit-analyzer:
+  preset: conventionalcommits
+  release-rules:
+    - type: feat
+      release: minor
+    - type: fix
+      release: patch
+    - type: perf
+      release: patch
+    - type: revert
+      release: patch
+    - type: docs
+      scope: README
+      release: patch
+    - type: style
+      release: false
+    - type: refactor
+      release: patch
+    - type: test
+      release: false
+    - type: build
+      release: false
+    - type: ci
+      release: false
+    - type: chore
+      release: false
+    - breaking: true
+      release: major
+  parser-opts:
+    note-keywords:
+      - BREAKING CHANGE
+      - BREAKING CHANGES
+      - BREAKING
+
+changelog-generator:
+  preset: conventionalcommits
+  preset-config:
+    types:
+      - type: feat
+        section: "✨ Features"
+        hidden: false
+      - type: fix
+        section: "🐛 Bug Fixes"
+        hidden: false
+      - type: perf
+        section: "⚡ Performance Improvements"
+        hidden: false
+      - type: revert
+        section: "⏪ Reverts"
+        hidden: false
+      - type: docs
+        section: "📚 Documentation"
+        hidden: false
+      - type: style
+        section: "🎨 Code Style"
+        hidden: true
+      - type: refactor
+        section: "♻️ Code Refactoring"
+        hidden: false
+      - type: test
+        section: "🧪 Tests"
+        hidden: true
+      - type: build
+        section: "🔨 Build System"
+        hidden: true
+      - type: ci
+        section: "🔧 CI/CD"
+        hidden: true
+      - type: chore
+        section: "🔧 Chores"
+        hidden: true
+
+plugins:
+  - provider-github:
+      success-comment: "🎉 This ${issue.pull_request ? 'PR is included' : 'issue has been resolved'} in version [${nextRelease.version}](${releases.filter(release => release.name == nextRelease.version)[0].url}) 🎉"
+      fail-comment: "❌ The release from branch ${branch.name} had failed due to the following errors:\n- ${errors.map(err => err.message).join('\\n- ')}"
+      released-labels:
+        - "released<%= nextRelease.version ? ` in v${nextRelease.version}` : '' %>"
+      add-releases: bottom
+
+  - files-updater:
+      - path: cmd/version.go
+        serializer: raw
+        search-pattern: 'Version = "([^"]*)"'
+        replace-pattern: 'Version = "{{.Version}}"'
+
+  - files-updater:
+      - path: .version
+        serializer: raw
+        content: "{{.Version}}"
+
+  - hooks-exec:
+      prepare:
+        - "echo 'Preparing release {{.Version}}'"
+      publish:
+        - "echo 'Publishing version {{.Version}}'"

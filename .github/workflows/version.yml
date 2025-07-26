@@ -8,7 +8,6 @@ permissions:
   contents: write
   issues: write
   pull-requests: write
-  id-token: write
 
 env:
   GO_VERSION: '1.22'
@@ -24,26 +23,23 @@ jobs:
         fetch-depth: 0
         token: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Setup Node.js
-      uses: actions/setup-node@v3
-      with:
-        node-version: '18'
-
-    - name: Install semantic-release
-      run: |
-        npm install -g semantic-release
-        npm install -g @semantic-release/changelog
-        npm install -g @semantic-release/git
-        npm install -g @semantic-release/github
-        npm install -g @semantic-release/exec
-
     - name: Configure Git
       run: |
         git config user.name "github-actions[bot]"
         git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-    - name: Run semantic-release
+    - name: Run go-semantic-release
+      uses: go-semantic-release/action@v1
       id: semantic
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: semantic-release
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        changelog-generator-opt: "emojis=true"
+        changelog-file: "CHANGELOG.md"
+        allow-initial-development-versions: false
+        force-bump-patch-version: false
+
+    - name: Output release info
+      if: steps.semantic.outputs.version != ''
+      run: |
+        echo "Released version: ${{ steps.semantic.outputs.version }}"
+        echo "Release notes: ${{ steps.semantic.outputs.changelog }}"

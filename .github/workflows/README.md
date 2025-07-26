@@ -20,13 +20,14 @@ Runs on every push to `main`/`develop` and pull requests to `main`.
 
 ### 2. **Automated Versioning - `.github/workflows/version.yml`**
 
-Automatically manages semantic versioning based on conventional commits.
+Automatically manages semantic versioning using go-semantic-release for optimal Go integration.
 
 **Features:**
-- ✅ **Semantic versioning** with conventional commits
-- ✅ **Automatic changelog generation**
-- ✅ **Version bumping** in source code
-- ✅ **Tag creation** and release notes
+- ✅ **Go-native semantic versioning** with conventional commits
+- ✅ **Automatic changelog generation** with emoji support
+- ✅ **Version bumping** in Go source code
+- ✅ **Tag creation** and GitHub releases
+- ✅ **No Node.js dependencies** for faster execution
 
 ### 3. **Release Pipeline - `.github/workflows/release.yml`**
 
