@@ -3,9 +3,10 @@
 [![Go Version](https://img.shields.io/github/go-mod/go-version/euan-cowie/cidrator)](https://golang.org/)
 [![Release](https://img.shields.io/github/v/release/euan-cowie/cidrator)](https://github.com/euan-cowie/cidrator/releases)
 [![License](https://img.shields.io/github/license/euan-cowie/cidrator)](LICENSE)
-[![Build Status](https://img.shields.io/github/actions/workflow/status/euan-cowie/cidrator/ci.yml?branch=main)](https://github.com/euan-cowie/cidrator/actions)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/euan-cowie/cidrator/ci.yml?branch=main&label=CI)](https://github.com/euan-cowie/cidrator/actions/workflows/ci.yml)
+[![Security Scan](https://img.shields.io/github/actions/workflow/status/euan-cowie/cidrator/ci.yml?branch=main&label=Security)](https://github.com/euan-cowie/cidrator/security/code-scanning)
+[![Coverage](https://codecov.io/gh/euan-cowie/cidrator/branch/main/graph/badge.svg)](https://codecov.io/gh/euan-cowie/cidrator)
 [![Go Report Card](https://goreportcard.com/badge/github.com/euan-cowie/cidrator)](https://goreportcard.com/report/github.com/euan-cowie/cidrator)
-[![CodeQL](https://github.com/euan-cowie/cidrator/workflows/CodeQL/badge.svg)](https://github.com/euan-cowie/cidrator/actions?query=workflow%3ACodeQL)
 
 > **Comprehensive network analysis and manipulation toolkit built with Go**
 
