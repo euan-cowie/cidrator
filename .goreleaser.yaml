@@ -1,27 +1,59 @@
 project_name: cidrator
 
+env:
+  - CGO_ENABLED=0
+
 before:
   hooks:
     - go mod tidy
-    - go generate
+    - go generate ./...
+    - go test ./...
+
+metadata:
+  mod_timestamp: '{{ .CommitTimestamp }}'
 
 builds:
   - id: cidrator
     binary: cidrator
     env:
-      - CGO_ENABLED=0 # Disable CGO to build static binaries
+      - CGO_ENABLED=0
     goos:
       - linux
       - windows
       - darwin
+      - freebsd
     goarch:
       - amd64
       - arm64
+      - arm
+    goarm:
+      - "6"
+      - "7"
+    ignore:
+      - goos: windows
+        goarch: arm
+      - goos: windows
+        goarch: arm64
+      - goos: freebsd
+        goarch: arm
+      - goos: freebsd
+        goarch: arm64
     ldflags:
       - -s -w
       - -X github.com/euan-cowie/cidrator/cmd.Version={{.Version}}
       - -X github.com/euan-cowie/cidrator/cmd.Commit={{.Commit}}
       - -X github.com/euan-cowie/cidrator/cmd.Date={{.Date}}
+      - -X github.com/euan-cowie/cidrator/cmd.BuiltBy=goreleaser
+    flags:
+      - -trimpath
+
+upx:
+  - enabled: true
+    compress: best
+    lzma: true
+    brute: true
+    goos: [linux, windows, darwin]
+    goarch: [amd64, arm64]
 
 archives:
   - id: cidrator
@@ -32,18 +64,176 @@ archives:
       {{- if eq .Arch "amd64" }}x86_64
       {{- else if eq .Arch "386" }}i386
       {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
     format_overrides:
       - goos: windows
         format: zip
+    files:
+      - README.md
+      - LICENSE
+      - CHANGELOG.md
+      - completions/*
 
 checksum:
   name_template: 'checksums.txt'
+  algorithm: sha256
+
+signs:
+  - artifacts: checksum
+    args:
+      - "--batch"
+      - "--local-user"
+      - "{{ .Env.GPG_FINGERPRINT }}"
+      - "--output"
+      - "${signature}"
+      - "--detach-sign"
+      - "${artifact}"
+
+sboms:
+  - artifacts: archive
+    documents:
+      - "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}.sbom"
+
+brews:
+  - name: cidrator
+    homepage: "https://github.com/euan-cowie/cidrator"
+    description: "Comprehensive network analysis and manipulation toolkit built with Go"
+    license: "MIT"
+    repository:
+      owner: euan-cowie
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    goarm: "7"
+    test: |
+      system "#{bin}/cidrator version"
+      system "#{bin}/cidrator cidr explain 192.168.1.0/24"
+    install: |-
+      bin.install "cidrator"
+      bash_completion.install "completions/cidrator.bash" => "cidrator"
+      zsh_completion.install "completions/cidrator.zsh" => "_cidrator"
+      fish_completion.install "completions/cidrator.fish"
+
+nfpms:
+  - id: packages
+    package_name: cidrator
+    vendor: Euan Cowie
+    homepage: "https://github.com/euan-cowie/cidrator"
+    maintainer: "Euan Cowie <hello@euan-cowie.me>"
+    description: "Comprehensive network analysis and manipulation toolkit built with Go"
+    license: "MIT"
+    formats:
+      - apk
+      - deb
+      - rpm
+      - archlinux
+    bindir: /usr/bin
+    section: utils
+    contents:
+      - src: ./completions/cidrator.bash
+        dst: /usr/share/bash-completion/completions/cidrator
+        file_info:
+          mode: 0644
+      - src: ./completions/cidrator.zsh
+        dst: /usr/share/zsh/site-functions/_cidrator
+        file_info:
+          mode: 0644
+      - src: ./completions/cidrator.fish
+        dst: /usr/share/fish/vendor_completions.d/cidrator.fish
+        file_info:
+          mode: 0644
+      - src: ./LICENSE
+        dst: /usr/share/doc/cidrator/copyright
+        file_info:
+          mode: 0644
+    rpm:
+      group: Applications/Internet
+      summary: Network analysis and manipulation toolkit
+    deb:
+      lintian_overrides:
+        - statically-linked-binary
+        - changelog-file-missing-in-native-package
+
+aurs:
+  - name: cidrator-bin
+    homepage: "https://github.com/euan-cowie/cidrator"
+    description: "Comprehensive network analysis and manipulation toolkit built with Go"
+    maintainers:
+      - "Euan Cowie <euan at euancowie dot dev>"
+    license: "MIT"
+    private_key: "{{ .Env.AUR_KEY }}"
+    git_url: "ssh://aur@aur.archlinux.org/cidrator-bin.git"
+    depends:
+      - glibc
+    package: |-
+      # bin
+      install -Dm755 "./cidrator" "${pkgdir}/usr/bin/cidrator"
+      
+      # license
+      install -Dm644 "./LICENSE" "${pkgdir}/usr/share/licenses/cidrator/LICENSE"
+      
+      # completions
+      mkdir -p "${pkgdir}/usr/share/bash-completion/completions/"
+      mkdir -p "${pkgdir}/usr/share/zsh/site-functions/"
+      mkdir -p "${pkgdir}/usr/share/fish/vendor_completions.d/"
+      install -Dm644 "./completions/cidrator.bash" "${pkgdir}/usr/share/bash-completion/completions/cidrator"
+      install -Dm644 "./completions/cidrator.zsh" "${pkgdir}/usr/share/zsh/site-functions/_cidrator"
+      install -Dm644 "./completions/cidrator.fish" "${pkgdir}/usr/share/fish/vendor_completions.d/cidrator.fish"
+
+publishers:
+  - name: fury.io
+    ids:
+      - packages
+    dir: "{{ dir .ArtifactPath }}"
+    cmd: curl -F package=@{{ .ArtifactName }} https://{{ .Env.FURY_TOKEN }}@push.fury.io/{{ .Env.FURY_ACCOUNT }}/
+
+snapcrafts:
+  - name: cidrator
+    publish: true
+    summary: Network analysis and manipulation toolkit
+    description: |
+      Cidrator is a comprehensive CLI toolkit for network analysis and manipulation.
+      
+      Available command groups:
+      - cidr: IPv4/IPv6 CIDR network analysis (explain, expand, contains, count, overlaps, divide)
+      - dns: DNS analysis and lookup tools (coming soon)
+      - scan: Network scanning and discovery (coming soon)  
+      - fw: Firewall rule generation and analysis (coming soon)
+    grade: stable
+    confinement: strict
+    license: MIT
+    base: core22
+    apps:
+      cidrator:
+        command: cidrator
+        plugs: ["network", "network-bind"]
 
 snapshot:
   name_template: "{{ incpatch .Version }}-next"
 
 changelog:
+  use: github
   sort: asc
+  abbrev: 0
+  groups:
+    - title: '✨ Features'
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: '🐛 Bug Fixes'
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: '⚡ Performance Improvements'
+      regexp: '^.*?perf(\([[:word:]]+\))??!?:.+$'
+      order: 2
+    - title: '♻️ Code Refactoring'
+      regexp: '^.*?refactor(\([[:word:]]+\))??!?:.+$'
+      order: 3
+    - title: '📚 Documentation'
+      regexp: '^.*?docs(\([[:word:]]+\))??!?:.+$'
+      order: 4
+    - title: '🔧 Other'
+      order: 999
   filters:
     exclude:
       - '^docs:'
@@ -51,3 +241,55 @@ changelog:
       - '^ci:'
       - '^chore:'
       - '^build:'
+      - typo
+      - Merge pull request
+      - Merge remote-tracking branch
+      - Merge branch
+
+release:
+  github:
+    owner: euan-cowie
+    name: cidrator
+  draft: false
+  prerelease: auto
+  mode: replace
+  header: |
+    ## Cidrator {{ .Tag }}
+    
+    {{ .Date }} | [Changelog](https://github.com/euan-cowie/cidrator/blob/main/CHANGELOG.md) | [Documentation](https://github.com/euan-cowie/cidrator/wiki)
+    
+    ### Installation
+    
+    #### Homebrew (macOS/Linux)
+    ```bash
+    brew install euan-cowie/tap/cidrator
+    ```
+    
+    #### Go Install
+    ```bash
+    go install github.com/euan-cowie/cidrator@{{ .Tag }}
+    ```
+    
+    #### Download Binary
+    Download the appropriate binary for your platform from the attachments below.
+    
+    ### What's Changed
+  footer: |
+    ### Verification
+    
+    All artifacts are signed and can be verified:
+    
+    ```bash
+    # Verify checksum
+    sha256sum -c checksums.txt
+    
+    # Verify GPG signature (if GPG key is available)
+    gpg --verify checksums.txt.sig checksums.txt
+    ```
+    
+    **Full Changelog**: https://github.com/euan-cowie/cidrator/compare/{{ .PreviousTag }}...{{ .Tag }}
+
+milestones:
+  - close: true
+    fail_on_error: false
+    name_template: "{{ .Tag }}"

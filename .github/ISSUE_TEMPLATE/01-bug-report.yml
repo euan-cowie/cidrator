@@ -121,7 +121,6 @@ body:
         - Pre-built binary download
         - Package manager (brew, apt, etc.)
         - Built from source
-        - Docker
         - Other (please specify in additional context)
     validations:
       required: true
