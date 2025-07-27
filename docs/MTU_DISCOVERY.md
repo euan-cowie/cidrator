@@ -360,11 +360,6 @@ done
 - Raw socket ICMP (may need sudo)
 - Interface enumeration via system calls
 
-### **Windows**
-- Full feature support
-- Raw socket ICMP (admin privileges)
-- WMI interface enumeration
-
 ### **BSD/Others**
 - Core functionality supported
 - May need platform-specific tuning

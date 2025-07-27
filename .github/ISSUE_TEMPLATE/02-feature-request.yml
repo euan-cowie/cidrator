@@ -9,7 +9,7 @@ body:
     attributes:
       value: |
         Thanks for suggesting a new feature! 💡
-        
+
         We appreciate ideas that make Cidrator better for everyone. Please provide as much detail as possible.
 
   - type: checkboxes
@@ -148,10 +148,9 @@ body:
       label: Platform Requirements
       description: Does this feature need to work on specific platforms?
       options:
-        - All platforms (Linux, macOS, Windows)
+        - All platforms (Linux, macOS)
         - Linux only
-        - macOS only  
-        - Windows only
+        - macOS only
         - Unix-like systems (Linux, macOS, FreeBSD)
         - No specific requirements
 
@@ -184,4 +183,4 @@ body:
       placeholder: |
         - Screenshots or mockups if applicable
         - Related issues or features
-        - Any other relevant information 
+        - Any other relevant information

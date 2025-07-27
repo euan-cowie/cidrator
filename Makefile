@@ -108,7 +108,6 @@ build-all: ## 🏗️ Build for all platforms
 	@GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o bin/cidrator-linux-amd64 .
 	@GOOS=darwin GOARCH=amd64 go build $(LDFLAGS) -o bin/cidrator-darwin-amd64 .
 	@GOOS=darwin GOARCH=arm64 go build $(LDFLAGS) -o bin/cidrator-darwin-arm64 .
-	@GOOS=windows GOARCH=amd64 go build $(LDFLAGS) -o bin/cidrator-windows-amd64.exe .
 	@echo "$(GREEN)✅ All builds complete!$(NC)"
 
 # === MAINTENANCE ===

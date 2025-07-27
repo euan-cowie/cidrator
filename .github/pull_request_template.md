@@ -3,9 +3,9 @@
 <!-- Provide a brief description of your changes -->
 
 ### Changes Made
-- 
-- 
-- 
+-
+-
+-
 
 ### Motivation
 <!-- Why are these changes needed? What problem do they solve? -->
@@ -58,7 +58,7 @@ go test ./...
 
 - [ ] Code comments added/updated
 - [ ] README updated (if applicable)
-- [ ] Command help text updated (if applicable)  
+- [ ] Command help text updated (if applicable)
 - [ ] Wiki/docs updated (if applicable)
 - [ ] CHANGELOG updated (for user-facing changes)
 
@@ -72,7 +72,7 @@ go test ./...
 - [ ] No new security issues introduced
 
 ### Functionality
-- [ ] Changes work on multiple platforms (Linux, macOS, Windows)
+- [ ] Changes work on multiple platforms (Linux, macOS)
 - [ ] Error handling is comprehensive
 - [ ] Input validation is adequate
 - [ ] No performance regressions introduced
@@ -87,9 +87,9 @@ go test ./...
 
 <!-- Help reviewers by highlighting areas that need special attention -->
 
-- **Focus on**: 
-- **Questions for reviewers**: 
-- **Concerns/Doubts**: 
+- **Focus on**:
+- **Questions for reviewers**:
+- **Concerns/Doubts**:
 
 ## 📸 Screenshots (if applicable)
 
@@ -121,8 +121,8 @@ go test ./...
 
 <!-- Optional: What follow-up work might be needed? -->
 
-- 
-- 
+-
+-
 
 ---
 
@@ -142,4 +142,4 @@ go test ./...
 - [ ] 🔥 Urgent (security, critical bug)
 - [ ] ⚡ High (important feature, significant bug)
 - [ ] 📦 Normal (regular feature, minor bug)
-- [ ] 🧹 Low (cleanup, documentation) 
+- [ ] 🧹 Low (cleanup, documentation)

@@ -497,7 +497,7 @@ cidrator/
 ### **🛠️ Developer Experience**
 - **Clean JSON output** - Perfect for automation and scripting
 - **Comprehensive validation** - Clear error messages for invalid inputs
-- **Cross-platform** - Native binaries for Linux, macOS, Windows
+- **Cross-platform** - Native binaries for Linux, macOS
 - **Zero dependencies** - Single binary with no external requirements
 
 ## 📊 Comparison
