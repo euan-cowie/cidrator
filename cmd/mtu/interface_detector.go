@@ -22,7 +22,6 @@ type InterfaceResult struct {
 	Interfaces []NetworkInterface `json:"interfaces"`
 }
 
-// ifTypeMap will be defined in platform-specific files
 // getInterfaceTypeFromOS will be defined in platform-specific files
 
 // GetNetworkInterfaces returns all network interfaces with their MTU values
