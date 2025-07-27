@@ -23,6 +23,15 @@ Cidrator is a modern, fast, and feature-rich CLI tool for IPv4/IPv6 CIDR network
 - **📋 IP expansion** - List all individual IP addresses with safety limits
 - **🌍 Full IPv6 support** - Complete feature parity between IPv4 and IPv6
 
+### 🛣️ **Path-MTU Discovery & MTU Toolbox** (Production Ready)
+- **🔍 Smart MTU Discovery** - RFC-compliant Path-MTU discovery using ICMP, TCP, or UDP probes
+- **👀 Continuous Monitoring** - Watch mode with real-time change detection and alerting
+- **🖥️ Interface Analysis** - Cross-platform network interface MTU enumeration
+- **💡 Protocol Suggestions** - Calculate optimal frame sizes for TCP, VPN protocols, and more
+- **🛡️ ICMP-Filtered Fallback** - PLPMTUD (RFC 4821) fallback for restrictive networks
+- **🔒 Security Features** - Rate limiting, packet randomization, and retry throttling
+- **🌐 Full Dual-Stack** - Complete IPv4 and IPv6 support across all probe methods
+
 ### 🚀 **Planned Features** (Coming Soon)
 - **🔍 DNS Tools** - DNS lookups, reverse DNS, zone analysis, performance testing
 - **🔎 Network Scanning** - Port scanning, ping sweeps, host discovery, service detection
@@ -73,11 +82,17 @@ cidrator cidr explain 10.0.0.0/16 --format json
 # Check if IP is in range
 cidrator cidr contains 192.168.1.0/24 192.168.1.100
 
-# List all IPs in small ranges
-cidrator cidr expand 192.168.1.0/30
+# Discover Path-MTU to a destination
+cidrator mtu discover google.com
 
-# Split network into subnets
-cidrator cidr divide 10.0.0.0/16 4
+# Watch for MTU changes (alerts on drops)
+cidrator mtu watch example.com --interval 30s
+
+# List network interfaces and their MTUs
+cidrator mtu interfaces
+
+# Get protocol-specific recommendations
+cidrator mtu suggest 8.8.8.8 --json
 ```
 
 ## 📚 Documentation
@@ -92,9 +107,135 @@ cidrator <command-group> <command> [arguments] [flags]
 
 **Available Command Groups:**
 - `cidr` - IPv4/IPv6 CIDR network analysis and manipulation
+- `mtu` - Path-MTU discovery and MTU analysis toolkit
 - `dns` - DNS analysis and lookup tools *(coming soon)*
 - `scan` - Network scanning and discovery *(coming soon)*
 - `fw` - Firewall rule generation and analysis *(coming soon)*
+
+### **MTU Commands**
+
+#### **🔍 Path-MTU Discovery**
+
+Discover the maximum packet size that can reach a destination without fragmentation:
+
+```bash
+# Basic ICMP-based discovery
+$ cidrator mtu discover google.com
+Discovering MTU to google.com...
+Protocol: icmp, Range: 576-9216, Timeout: 2s
+Target: google.com
+Protocol: icmp
+Path MTU: 1500
+TCP MSS: 1460
+Hops: 12
+Elapsed: 234ms
+
+# TCP-based discovery with JSON output
+$ cidrator mtu discover example.com --proto tcp --json
+{
+  "target": "example.com",
+  "protocol": "tcp",
+  "pmtu": 1500,
+  "mss": 1460,
+  "hops": 10,
+  "elapsed_ms": 190
+}
+
+# UDP-based discovery for VPN scenarios
+$ cidrator mtu discover 8.8.8.8 --proto udp --max 1472
+Target: 8.8.8.8
+Protocol: udp
+Path MTU: 1472
+TCP MSS: 1432
+Hops: 8
+Elapsed: 145ms
+
+# IPv6 discovery
+$ cidrator mtu discover 2001:4860:4860::8888 --6
+Target: 2001:4860:4860::8888
+Protocol: icmp
+Path MTU: 1500
+TCP MSS: 1440
+Hops: 11
+Elapsed: 278ms
+```
+
+#### **👀 Continuous MTU Monitoring**
+
+Monitor Path-MTU changes over time with alerting:
+
+```bash
+# Basic monitoring
+$ cidrator mtu watch example.com --interval 30s
+Watching MTU to example.com every 30s...
+Press Ctrl+C to stop
+
+[15:30:15]  MTU: 1500, MSS: 1460
+[15:30:45]  MTU: 1500, MSS: 1460
+[15:31:15]! MTU: 1472, MSS: 1432 (was 1500) ← CHANGED
+
+# JSON output for logging/monitoring systems
+$ cidrator mtu watch 8.8.8.8 --interval 10s --json
+{"timestamp":"2023-12-01T15:30:15Z","target":"8.8.8.8","pmtu":1500,"mss":1460,"changed":false,"mss_changed":false}
+{"timestamp":"2023-12-01T15:30:25Z","target":"8.8.8.8","pmtu":1500,"mss":1460,"changed":false,"mss_changed":false}
+
+# Alert only on MSS changes
+$ cidrator mtu watch corporate-vpn.example.com --mss-only --syslog
+```
+
+#### **🖥️ Interface MTU Analysis**
+
+List network interfaces and their MTU configurations:
+
+```bash
+# Human-readable table
+$ cidrator mtu interfaces
+Interface       MTU    Type
+--------------- ------ --------
+lo0             16384  loopback
+en0             1500   ethernet
+en1             1500   ethernet
+utun0           1380   tunnel
+bridge0         1500   bridge
+
+# JSON for automation
+$ cidrator mtu interfaces --json
+{
+  "interfaces": [
+    {"name": "lo0", "mtu": 16384, "type": "loopback"},
+    {"name": "en0", "mtu": 1500, "type": "ethernet"},
+    {"name": "utun0", "mtu": 1380, "type": "tunnel"}
+  ]
+}
+```
+
+#### **💡 Protocol Frame Size Suggestions**
+
+Get optimal frame sizes for various protocols based on discovered Path-MTU:
+
+```bash
+# Protocol recommendations
+$ cidrator mtu suggest example.com
+Suggestions for example.com (PMTU: 1500):
+
+TCP MSS (IPv4):      1460
+TCP MSS (IPv6):      1440
+WireGuard payload:   1440
+IPSec ESP+UDP:       1416
+
+# JSON output for configuration management
+$ cidrator mtu suggest vpn-server.corp.com --json
+{
+  "target": "vpn-server.corp.com",
+  "pmtu": 1472,
+  "suggestions": {
+    "tcp_mss_ipv4": 1432,
+    "tcp_mss_ipv6": 1412,
+    "wireguard_payload": 1412,
+    "ipsec_esp_udp": 1388
+  }
+}
+```
 
 ### **CIDR Commands**
 
@@ -224,19 +365,25 @@ Error: cannot divide 192.168.1.0/30 into 8 parts: insufficient host bits
 - **Subnet planning** - Divide large networks into manageable subnets
 - **IP inventory** - Count and list available addresses
 - **Network validation** - Verify CIDR configurations
+- **MTU optimization** - Discover and monitor optimal packet sizes
+- **Performance troubleshooting** - Identify MTU misconfigurations causing fragmentation
 - **Documentation** - Generate network documentation with JSON/YAML export
 
 ### **DevOps & Automation**
 - **Infrastructure as Code** - Validate CIDR ranges in Terraform/CloudFormation
-- **CI/CD pipelines** - Automate network validation
-- **Monitoring** - Check network configurations programmatically
+- **CI/CD pipelines** - Automate network validation and MTU testing
+- **Monitoring** - Continuous MTU monitoring with alerting integration
+- **VPN Configuration** - Automate optimal MTU settings for VPN tunnels
+- **Container networking** - Validate network configurations in Kubernetes/Docker
 - **Scripting** - JSON output for easy parsing in automation scripts
 
 ### **Security & Compliance**
 - **Network segmentation** - Plan and validate network boundaries
+- **MTU black hole detection** - Identify network changes affecting connectivity
+- **Performance audits** - Ensure optimal network performance settings
+- **Penetration testing** - Network reconnaissance and path analysis
 - **Firewall rules** - Generate and validate IP ranges for rules *(coming soon)*
-- **Security audits** - Analyze network configurations
-- **Penetration testing** - Network reconnaissance and planning *(scanning features coming soon)*
+- **Security monitoring** - Track network configuration changes
 
 ## 🔧 Advanced Usage
 
@@ -251,12 +398,22 @@ for ip in 10.0.0.1 10.0.0.100 10.1.0.1; do
   echo "$ip: $(cidrator cidr contains 10.0.0.0/16 $ip)"
 done
 
-# Generate subnet plan
-cidrator cidr divide 172.16.0.0/12 16 > subnet-plan.txt
+# Automated MTU testing for multiple hosts
+hosts=(google.com cloudflare.com example.com)
+for host in "${hosts[@]}"; do
+  mtu=$(cidrator mtu discover "$host" --json | jq -r '.pmtu')
+  echo "$host: MTU $mtu"
+done
 
-# Validate CIDR in shell scripts
-if cidrator cidr contains 192.168.0.0/16 "$USER_IP" > /dev/null 2>&1; then
-  echo "IP is in private range"
+# VPN configuration automation
+mtu=$(cidrator mtu discover vpn-server.corp.com --proto udp --json | jq -r '.pmtu')
+wireguard_mtu=$((mtu - 60))
+echo "WireGuard MTU: $wireguard_mtu"
+
+# Monitor network health in CI/CD
+if ! cidrator mtu discover critical-service.com --quiet --timeout 5s; then
+  echo "MTU discovery failed - network issue detected"
+  exit 1
 fi
 ```
 
@@ -285,6 +442,17 @@ cidrator/
 │   │   ├── count.go       # Address counting with big number support
 │   │   ├── overlaps.go    # Network overlap detection
 │   │   └── divide.go      # Intelligent subnet division
+│   ├── mtu/               # MTU command group
+│   │   ├── mtu.go         # MTU parent command
+│   │   ├── discover.go    # MTU discovery command interface
+│   │   ├── discovery.go   # Core MTU discovery algorithms
+│   │   ├── watch.go       # Continuous monitoring
+│   │   ├── interfaces.go  # Interface enumeration
+│   │   ├── suggest.go     # Protocol recommendations
+│   │   ├── interface_detector.go # Cross-platform interface detection
+│   │   ├── tcp_udp_probes.go     # TCP/UDP probe implementations
+│   │   ├── plpmtud.go     # RFC 4821 PLPMTUD fallback
+│   │   └── security.go    # Rate limiting & packet randomization
 │   ├── dns/               # DNS command group (scaffold)
 │   ├── scan/              # Scanning command group (scaffold)
 │   └── fw/                # Firewall command group (scaffold)
@@ -334,15 +502,16 @@ cidrator/
 
 ## 📊 Comparison
 
-| Feature | Cidrator | `ipcalc` | `sipcalc` | `prips` |
-|---------|----------|----------|-----------|---------|
-| **IPv6 Support** | ✅ Full | ⚠️ Limited | ✅ Yes | ❌ No |
-| **JSON/YAML Output** | ✅ Yes | ❌ No | ❌ No | ❌ No |
-| **Safety Limits** | ✅ Built-in | ❌ No | ❌ No | ❌ No |
-| **Modern CLI** | ✅ kubectl-style | ❌ Traditional | ❌ Traditional | ❌ Traditional |
-| **Cross-platform** | ✅ All platforms | ⚠️ Limited | ✅ Yes | ⚠️ Limited |
-| **Extensible** | ✅ Planned features | ❌ Static | ❌ Static | ❌ Static |
-| **Large Networks** | ✅ Optimized | ⚠️ Basic | ⚠️ Basic | ❌ Memory issues |
+| Feature | Cidrator | `ping` | `tracepath` | `iperf3` |
+|---------|----------|--------|-------------|----------|
+| **Path-MTU Discovery** | ✅ Multi-protocol | ⚠️ Basic ICMP | ⚠️ IPv4 only | ❌ No |
+| **Continuous Monitoring** | ✅ Built-in | ❌ Manual | ❌ Manual | ❌ No |
+| **JSON Output** | ✅ Structured | ❌ No | ❌ No | ⚠️ Limited |
+| **Multiple Protocols** | ✅ ICMP/TCP/UDP | ❌ ICMP only | ❌ UDP only | ✅ TCP/UDP |
+| **ICMP Fallback** | ✅ PLPMTUD | ❌ No | ❌ No | ❌ No |
+| **IPv6 Support** | ✅ Full | ✅ Yes | ⚠️ Limited | ✅ Yes |
+| **Security Features** | ✅ Rate limiting | ❌ Basic | ❌ No | ❌ No |
+| **Cross-platform** | ✅ All platforms | ✅ Universal | ⚠️ Linux/BSD | ✅ All platforms |
 
 ## 🛣️ Roadmap
 
@@ -352,19 +521,27 @@ cidrator/
 - ✅ Safety limits and validation
 - ✅ Comprehensive test coverage
 
-### **Phase 2: DNS Tools** 🚧 *In Progress*
+### **Phase 2: Path-MTU Discovery** ✅ *Complete*
+- ✅ Multi-protocol MTU discovery (ICMP, TCP, UDP)
+- ✅ Continuous monitoring with change detection
+- ✅ Cross-platform interface enumeration
+- ✅ Protocol-specific frame size recommendations
+- ✅ PLPMTUD fallback for ICMP-filtered networks
+- ✅ Security features and rate limiting
+
+### **Phase 3: DNS Tools** 🚧 *In Progress*
 - 🔄 DNS record lookups (A, AAAA, MX, TXT, etc.)
 - 🔄 Reverse DNS lookups
 - 🔄 DNS server performance testing
 - 🔄 Zone file analysis
 
-### **Phase 3: Network Scanning** 📅 *Planned*
+### **Phase 4: Network Scanning** 📅 *Planned*
 - 📅 Port scanning with multiple techniques
 - 📅 Host discovery and ping sweeps
 - 📅 Service detection and OS fingerprinting
 - 📅 Network topology mapping
 
-### **Phase 4: Firewall Management** 📅 *Future*
+### **Phase 5: Firewall Management** 📅 *Future*
 - 📅 Multi-format rule generation (iptables, pf, cisco)
 - 📅 Configuration analysis and optimization
 - 📅 Security policy validation

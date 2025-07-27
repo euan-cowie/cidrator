@@ -7,6 +7,7 @@ import (
 	"github.com/euan-cowie/cidrator/cmd/cidr"
 	"github.com/euan-cowie/cidrator/cmd/dns"
 	"github.com/euan-cowie/cidrator/cmd/fw"
+	"github.com/euan-cowie/cidrator/cmd/mtu"
 	"github.com/euan-cowie/cidrator/cmd/scan"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -22,6 +23,7 @@ var rootCmd = &cobra.Command{
 
 Available command groups:
 - cidr: IPv4/IPv6 CIDR network analysis (explain, expand, contains, count, overlaps, divide)
+- mtu: Path-MTU discovery & MTU toolbox (discover, watch, interfaces, suggest)
 - dns: DNS analysis and lookup tools (coming soon)
 - scan: Network scanning and discovery (coming soon)
 - fw: Firewall rule generation and analysis (coming soon)
@@ -44,6 +46,7 @@ func init() {
 
 	// Add command groups
 	rootCmd.AddCommand(cidr.CidrCmd)
+	rootCmd.AddCommand(mtu.MTUCmd)
 	rootCmd.AddCommand(dns.DNSCmd)
 	rootCmd.AddCommand(scan.ScanCmd)
 	rootCmd.AddCommand(fw.FwCmd)
