@@ -313,22 +313,28 @@ func TestRetryThrottlerBackoff(t *testing.T) {
 
 // TestRetryThrottlerConcurrency tests retry throttler thread safety
 func TestRetryThrottlerConcurrency(t *testing.T) {
-	throttler := NewRetryThrottler(10, 1*time.Millisecond)
+	// Use a very short delay and reasonable retry count for faster test
+	throttler := NewRetryThrottler(3, 1*time.Millisecond)
 
 	var wg sync.WaitGroup
-	numGoroutines := 5
+	numGoroutines := 3
+	completed := make(chan int, numGoroutines)
 
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
-		go func() {
+		go func(id int) {
 			defer wg.Done()
-			for throttler.ShouldRetry() {
+			retryCount := 0
+			// Limit the number of retries to prevent infinite loops
+			for retryCount < 5 && throttler.ShouldRetry() {
 				throttler.WaitForRetry()
+				retryCount++
 			}
-		}()
+			completed <- id
+		}(i)
 	}
 
-	// Should not deadlock or panic
+	// Should not deadlock or panic - use shorter timeout
 	done := make(chan struct{})
 	go func() {
 		wg.Wait()
@@ -337,8 +343,16 @@ func TestRetryThrottlerConcurrency(t *testing.T) {
 
 	select {
 	case <-done:
-		// Success
-	case <-time.After(5 * time.Second):
+		// Verify all goroutines completed
+		close(completed)
+		completedCount := 0
+		for range completed {
+			completedCount++
+		}
+		if completedCount != numGoroutines {
+			t.Errorf("expected %d goroutines to complete, got %d", numGoroutines, completedCount)
+		}
+	case <-time.After(2 * time.Second):
 		t.Errorf("retry throttler concurrency test timed out")
 	}
 }

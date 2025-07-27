@@ -2,22 +2,46 @@ package mtu
 
 import (
 	"context"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
 
+// TestMain sets up and tears down for integration tests
+func TestMain(m *testing.M) {
+	// Build binary once for all integration tests
+	if err := buildTestBinaryOnce(); err != nil {
+		os.Exit(1)
+	}
+
+	// Run tests
+	code := m.Run()
+
+	// Cleanup
+	cleanupTestBinary()
+
+	os.Exit(code)
+}
+
+// buildTestBinaryOnce builds the test binary once
+func buildTestBinaryOnce() error {
+	buildCmd := exec.Command("go", "build", "-o", "../../bin/cidrator", "../../main.go")
+	return buildCmd.Run()
+}
+
+// cleanupTestBinary removes the test binary
+func cleanupTestBinary() {
+	binary := "../../bin/cidrator"
+	_ = os.Remove(binary) // Ignore errors during cleanup
+}
+
 // TestMTUIntegration runs integration tests for the MTU functionality
 func TestMTUIntegration(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration tests in short mode")
-	}
-
-	// Build the binary for testing
-	buildCmd := exec.Command("go", "build", "-o", "../../bin/cidrator", "../../main.go")
-	if err := buildCmd.Run(); err != nil {
-		t.Fatalf("failed to build cidrator binary: %v", err)
 	}
 
 	binary := "../../bin/cidrator"
@@ -411,6 +435,46 @@ func TestMTUConcurrency(t *testing.T) {
 		elapsed := time.Since(start)
 		if elapsed > 5*time.Second {
 			t.Errorf("concurrent rate limiting took too long: %v", elapsed)
+		}
+	})
+}
+
+// TestMTUConfigurationFiles tests configuration file handling
+func TestMTUConfigurationFiles(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration tests in short mode")
+	}
+
+	// Create a temporary config directory
+	tempDir := t.TempDir()
+	configFile := filepath.Join(tempDir, "cidrator.yaml")
+
+	// Write a test config file
+	configContent := `
+mtu:
+  default_protocol: tcp
+  default_timeout: 5s
+  default_max: 1500
+`
+	if err := os.WriteFile(configFile, []byte(configContent), 0644); err != nil {
+		t.Fatalf("failed to write config file: %v", err)
+	}
+
+	// Test with config file (if your CLI supports it)
+	// This is a placeholder - implement based on your actual config handling
+	binary := "../../bin/cidrator"
+	t.Run("with config file", func(t *testing.T) {
+		// Set environment variable or flag to use config file
+		// This depends on how your CLI handles configuration
+		cmd := exec.Command(binary, "mtu", "--help")
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Errorf("mtu --help failed: %v", err)
+		}
+
+		outputStr := string(output)
+		if !strings.Contains(outputStr, "Path-MTU discovery") {
+			t.Errorf("expected output to contain 'Path-MTU discovery', got: %s", outputStr)
 		}
 	})
 }

@@ -2,12 +2,15 @@ package mtu
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -549,11 +552,280 @@ func TestCalculateSuggestions(t *testing.T) {
 	}
 }
 
+// TestMockNetworkProber demonstrates proper mock usage
+func TestMockNetworkProber(t *testing.T) {
+	tests := []struct {
+		name        string
+		setupMock   func(*MockNetworkProber)
+		probeSize   int
+		expectError bool
+	}{
+		{
+			name: "successful probe",
+			setupMock: func(m *MockNetworkProber) {
+				m.SetResponse(1500, true, nil)
+			},
+			probeSize:   1500,
+			expectError: false,
+		},
+		{
+			name: "fragmentation needed",
+			setupMock: func(m *MockNetworkProber) {
+				icmpErr := &ICMPError{
+					Type:    3,
+					Code:    4,
+					Message: "Fragmentation Needed",
+				}
+				m.SetResponse(1600, false, icmpErr)
+			},
+			probeSize:   1600,
+			expectError: false,
+		},
+		{
+			name: "probe after closure",
+			setupMock: func(m *MockNetworkProber) {
+				_ = m.Close() // Ignore error in test setup
+			},
+			probeSize:   1500,
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := NewMockNetworkProber()
+			defer func() {
+				if closeErr := mock.Close(); closeErr != nil {
+					t.Logf("Warning: failed to close mock: %v", closeErr)
+				}
+			}()
+			tt.setupMock(mock)
+
+			ctx, cancel := context.WithTimeout(context.Background(), TestTimeouts.Short)
+			defer cancel()
+
+			result := mock.Probe(ctx, tt.probeSize)
+
+			if tt.expectError {
+				if result.Error == nil {
+					t.Errorf("expected error, got none")
+				}
+			} else {
+				if result.Error != nil {
+					t.Errorf("unexpected error: %v", result.Error)
+				}
+				if result.Size != tt.probeSize {
+					t.Errorf("size mismatch: got %d, want %d", result.Size, tt.probeSize)
+				}
+			}
+		})
+	}
+}
+
+// TestMockMTUDiscovery demonstrates proper MTU discovery mocking
+func TestMockMTUDiscovery(t *testing.T) {
+	// Test standard MTU scenarios using test constants
+	for _, scenario := range TestMTUScenarios {
+		t.Run(scenario.Name, func(t *testing.T) {
+			helper := NewTestHelper(t)
+			testFunc := helper.CreateMockDiscoveryTest(scenario.Name, scenario.MTU, "tcp", true)
+			testFunc(t)
+		})
+	}
+}
+
+// TestMTUDiscoveryFailureModes tests various failure scenarios
+func TestMTUDiscoveryFailureModes(t *testing.T) {
+	tests := []struct {
+		name        string
+		failureMode string
+		expectedErr string
+	}{
+		{
+			name:        "network unreachable",
+			failureMode: "network_unreachable",
+			expectedErr: "network unreachable",
+		},
+		{
+			name:        "permission denied",
+			failureMode: "permission_denied",
+			expectedErr: "operation not permitted",
+		},
+		{
+			name:        "timeout",
+			failureMode: "timeout",
+			expectedErr: "operation timed out",
+		},
+		{
+			name:        "no working MTU",
+			failureMode: "no_working_mtu",
+			expectedErr: "no working MTU found",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := NewMockMTUDiscoverer(TestTargets.Localhost, "tcp", 1500)
+			mock.SetFailureMode(tt.failureMode)
+			defer func() {
+				if closeErr := mock.Close(); closeErr != nil {
+					t.Logf("Warning: failed to close mock: %v", closeErr)
+				}
+			}()
+
+			ctx, cancel := context.WithTimeout(context.Background(), TestTimeouts.Normal)
+			defer cancel()
+
+			_, err := mock.DiscoverPMTU(ctx, 576, 1500)
+			if err == nil {
+				t.Errorf("expected error, got nil")
+				return
+			}
+
+			helper := NewTestHelper(t)
+			helper.AssertErrorType(err, nil, tt.expectedErr)
+		})
+	}
+}
+
+// TestCalculateExpectedValues demonstrates using test constants
+func TestCalculateExpectedValues(t *testing.T) {
+	tests := []struct {
+		name     string
+		mtu      int
+		protocol string
+		ipv6     bool
+		expected int
+	}{
+		{
+			name:     "IPv4 TCP MSS",
+			mtu:      1500,
+			protocol: "tcp",
+			ipv6:     false,
+			expected: 1500 - IPv4HeaderSize - TCPHeaderSize,
+		},
+		{
+			name:     "IPv6 TCP MSS",
+			mtu:      1500,
+			protocol: "tcp",
+			ipv6:     true,
+			expected: 1500 - IPv6HeaderSize - TCPHeaderSize,
+		},
+		{
+			name:     "WireGuard payload",
+			mtu:      1500,
+			protocol: "wireguard",
+			ipv6:     false,
+			expected: 1500 - WireGuardOverhead,
+		},
+		{
+			name:     "IPSec ESP+UDP",
+			mtu:      1500,
+			protocol: "ipsec",
+			ipv6:     false,
+			expected: 1500 - IPSecESPUDPOverhead,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var result int
+			if tt.protocol == "tcp" {
+				result = CalculateExpectedMSS(tt.mtu, tt.ipv6)
+			} else {
+				result = CalculateExpectedPayload(tt.mtu, tt.protocol, tt.ipv6)
+			}
+
+			if result != tt.expected {
+				t.Errorf("expected %d, got %d", tt.expected, result)
+			}
+		})
+	}
+}
+
+// TestMTUFragmentationSimulation demonstrates realistic MTU discovery simulation
+func TestMTUFragmentationSimulation(t *testing.T) {
+	mock := NewMockNetworkProber()
+	mock.SetMTUFragmentationPoint(1472) // Simulate path with 1472 MTU
+
+	ctx := context.Background()
+
+	// Test sizes around the fragmentation point
+	testSizes := []struct {
+		size            int
+		expectedSuccess bool
+	}{
+		{1400, true},  // Should succeed
+		{1472, true},  // Should succeed (at the limit)
+		{1500, false}, // Should fail (too large)
+		{1600, false}, // Should fail (too large)
+	}
+
+	for _, test := range testSizes {
+		t.Run(fmt.Sprintf("size_%d", test.size), func(t *testing.T) {
+			result := mock.Probe(ctx, test.size)
+
+			if result.Success != test.expectedSuccess {
+				t.Errorf("size %d: expected success=%v, got %v",
+					test.size, test.expectedSuccess, result.Success)
+			}
+
+			if !test.expectedSuccess && result.ICMPErr == nil {
+				t.Errorf("size %d: expected ICMP error for failed probe", test.size)
+			}
+		})
+	}
+
+	// Verify call count tracking
+	expectedCalls := len(testSizes)
+	if mock.GetCallCount() != expectedCalls {
+		t.Errorf("expected %d calls, got %d", expectedCalls, mock.GetCallCount())
+	}
+}
+
+// TestRateLimitingWithSkipping shows improved rate limiting tests
+func TestRateLimitingWithSkipping(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping timing test in short mode")
+	}
+
+	limiter := NewRateLimiter(10) // 10 PPS
+
+	start := time.Now()
+
+	// Make 5 calls
+	for i := 0; i < 5; i++ {
+		limiter.Wait()
+	}
+
+	elapsed := time.Since(start)
+
+	// Should take at least 400ms for 5 packets at 10 PPS
+	expectedMin := 400 * time.Millisecond
+	if elapsed < expectedMin {
+		t.Errorf("rate limiting too fast: took %v, expected at least %v", elapsed, expectedMin)
+	}
+}
+
 // Benchmark tests for performance validation
 func BenchmarkCalculateSuggestions(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		calculateSuggestions(1500)
 	}
+}
+
+func BenchmarkImprovedMTUCalculations(b *testing.B) {
+	b.Run("CalculateExpectedMSS", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			CalculateExpectedMSS(1500, false)
+		}
+	})
+
+	b.Run("CalculateExpectedPayload", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			CalculateExpectedPayload(1500, "tcp", false)
+		}
+	})
 }
 
 func BenchmarkOutputJSON(b *testing.B) {
