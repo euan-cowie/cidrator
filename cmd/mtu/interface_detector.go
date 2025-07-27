@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -109,7 +110,12 @@ func getPlatformSpecificMTU(interfaceName string) (int, error) {
 
 // getLinuxMTU reads MTU from /sys/class/net/*/mtu
 func getLinuxMTU(interfaceName string) (int, error) {
-	path := fmt.Sprintf("/sys/class/net/%s/mtu", interfaceName)
+	// Sanitize path to prevent directory traversal
+	path := filepath.Join("/sys/class/net/", interfaceName, "mtu")
+	if !strings.HasPrefix(path, "/sys/class/net/") {
+		return 0, fmt.Errorf("invalid interface name provided: %s", interfaceName)
+	}
+
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return 0, err

@@ -2,7 +2,9 @@ package mtu
 
 import (
 	"crypto/rand"
+	"fmt"
 	"math/big"
+	"os"
 	"sync"
 	"time"
 )
@@ -92,6 +94,9 @@ func (pr *PacketRandomizer) GenerateRandomPayload(size int) []byte {
 	payload := make([]byte, size)
 	if _, err := rand.Read(payload); err != nil {
 		// Fallback to a simple pattern if crypto/rand fails
+		// This is a significant issue, so we should log it.
+		// In a real application, this might be a fatal error.
+		fmt.Fprintf(os.Stderr, "Warning: crypto/rand.Read failed: %v. Using predictable payload.\n", err)
 		for i := range payload {
 			payload[i] = byte(i % 256)
 		}
