@@ -109,7 +109,9 @@ func runWatch(cmd *cobra.Command, args []string) error {
 			// Handle alerts
 			if changed && lastResult != nil {
 				if useSyslog {
-					// TODO: Send to syslog
+					// TODO: Implement syslog integration
+					// For now, just log to stderr as placeholder
+					fmt.Fprintf(os.Stderr, "MTU change detected for %s: %d\n", destination, result.PMTU)
 				}
 				if mssOnly && !mssChanged {
 					// Skip alert if only monitoring MSS changes
@@ -141,7 +143,11 @@ func performMTUDiscovery(destination string, ipv6 bool, proto string, timeout ti
 	if err != nil {
 		return nil, fmt.Errorf("failed to create discoverer: %w", err)
 	}
-	defer discoverer.Close()
+	defer func() {
+		if closeErr := discoverer.Close(); closeErr != nil {
+			fmt.Printf("Warning: failed to close discoverer: %v\n", closeErr)
+		}
+	}()
 
 	// Perform MTU discovery
 	return discoverer.DiscoverPMTU(ctx, minMTU, maxMTU)

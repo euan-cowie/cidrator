@@ -252,7 +252,14 @@ func (d *MTUDiscoverer) probe(ctx context.Context, size int) *ProbeResult {
 
 	// Set read deadline
 	deadline := time.Now().Add(d.timeout)
-	d.conn.SetReadDeadline(deadline)
+	if err := d.conn.SetReadDeadline(deadline); err != nil {
+		return &ProbeResult{
+			Size:    size,
+			Success: false,
+			RTT:     time.Since(start),
+			Error:   fmt.Errorf("failed to set read deadline: %w", err),
+		}
+	}
 
 	// Read response
 	response := make([]byte, 1500)
@@ -411,31 +418,5 @@ func (d *MTUDiscoverer) isFragmentationError(icmpErr *ICMPError) bool {
 	} else {
 		// IPv4 Destination Unreachable with Fragmentation Needed
 		return icmpErr.Type == int(ipv4.ICMPTypeDestinationUnreachable) && icmpErr.Code == 4
-	}
-}
-
-// getICMPErrorMessage returns a human-readable error message for ICMP errors
-func (d *MTUDiscoverer) getICMPErrorMessage(icmpType, code int) string {
-	if d.ipv6 {
-		switch icmpType {
-		case int(ipv6.ICMPTypePacketTooBig):
-			return "Packet Too Big"
-		case int(ipv6.ICMPTypeDestinationUnreachable):
-			return "Destination Unreachable"
-		default:
-			return fmt.Sprintf("ICMPv6 Type %d Code %d", icmpType, code)
-		}
-	} else {
-		switch icmpType {
-		case int(ipv4.ICMPTypeDestinationUnreachable):
-			switch code {
-			case 4:
-				return "Fragmentation Needed and Don't Fragment was Set"
-			default:
-				return fmt.Sprintf("Destination Unreachable (Code %d)", code)
-			}
-		default:
-			return fmt.Sprintf("ICMP Type %d Code %d", icmpType, code)
-		}
 	}
 }

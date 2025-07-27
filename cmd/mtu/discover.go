@@ -70,7 +70,12 @@ func runDiscover(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create discoverer: %w", err)
 	}
-	defer discoverer.Close()
+	defer func() {
+		if closeErr := discoverer.Close(); closeErr != nil {
+			// Log the close error but don't override the main error
+			fmt.Printf("Warning: failed to close discoverer: %v\n", closeErr)
+		}
+	}()
 
 	// Perform MTU discovery
 	result, err := discoverer.DiscoverPMTU(ctx, minMTU, maxMTU)

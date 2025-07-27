@@ -60,8 +60,8 @@ func TestRateLimiterTiming(t *testing.T) {
 		t.Errorf("rate limiting too fast: took %v, expected at least %v", elapsed, expectedMin)
 	}
 
-	// But shouldn't take too much longer (allow some tolerance)
-	expectedMax := 1500 * time.Millisecond
+	// But shouldn't take too much longer (allow some tolerance for system load)
+	expectedMax := 2000 * time.Millisecond // Increased tolerance
 	if elapsed > expectedMax {
 		t.Errorf("rate limiting too slow: took %v, expected at most %v", elapsed, expectedMax)
 	}

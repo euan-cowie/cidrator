@@ -90,7 +90,12 @@ func (pr *PacketRandomizer) GenerateRandomPayload(size int) []byte {
 
 	// Generate cryptographically random payload
 	payload := make([]byte, size)
-	rand.Read(payload)
+	if _, err := rand.Read(payload); err != nil {
+		// Fallback to a simple pattern if crypto/rand fails
+		for i := range payload {
+			payload[i] = byte(i % 256)
+		}
+	}
 	return payload
 }
 

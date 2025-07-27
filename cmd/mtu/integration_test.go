@@ -304,7 +304,11 @@ func TestMTUErrorHandling(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to create discoverer: %v", err)
 		}
-		defer discoverer.Close()
+		defer func() {
+			if closeErr := discoverer.Close(); closeErr != nil {
+				t.Logf("Warning: failed to close discoverer: %v", closeErr)
+			}
+		}()
 
 		// Create a context that times out quickly
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
@@ -323,7 +327,11 @@ func TestMTUErrorHandling(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to create discoverer: %v", err)
 		}
-		defer discoverer.Close()
+		defer func() {
+			if closeErr := discoverer.Close(); closeErr != nil {
+				t.Logf("Warning: failed to close discoverer: %v", closeErr)
+			}
+		}()
 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()

@@ -2,6 +2,7 @@ package mtu
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 )
@@ -67,6 +68,11 @@ func TestNewMTUDiscoverer(t *testing.T) {
 			}
 
 			if err != nil {
+				// Handle ICMP permission errors gracefully for non-root users
+				if tt.protocol == "icmp" && strings.Contains(err.Error(), "operation not permitted") {
+					t.Skipf("ICMP requires elevated privileges: %v", err)
+					return
+				}
 				t.Errorf("unexpected error: %v", err)
 				return
 			}
@@ -98,9 +104,11 @@ func TestNewMTUDiscoverer(t *testing.T) {
 			}
 
 			// Clean up
-			if discoverer != nil {
-				discoverer.Close()
-			}
+			defer func() {
+				if closeErr := discoverer.Close(); closeErr != nil {
+					t.Logf("Warning: failed to close discoverer: %v", closeErr)
+				}
+			}()
 		})
 	}
 }
@@ -191,10 +199,19 @@ func TestProtocolSupport(t *testing.T) {
 		t.Run(protocol, func(t *testing.T) {
 			discoverer, err := NewMTUDiscoverer("localhost", false, protocol, 2*time.Second, 64)
 			if err != nil {
+				// Handle ICMP permission errors gracefully for non-root users
+				if protocol == "icmp" && strings.Contains(err.Error(), "operation not permitted") {
+					t.Skipf("ICMP requires elevated privileges: %v", err)
+					return
+				}
 				t.Errorf("failed to create %s discoverer: %v", protocol, err)
 				return
 			}
-			defer discoverer.Close()
+			defer func() {
+				if closeErr := discoverer.Close(); closeErr != nil {
+					t.Logf("Warning: failed to close discoverer: %v", closeErr)
+				}
+			}()
 
 			// Test that the discoverer was created with correct protocol
 			if discoverer.protocol != protocol {
@@ -211,7 +228,11 @@ func TestInvalidProtocol(t *testing.T) {
 		t.Errorf("expected no error during creation, got: %v", err)
 		return
 	}
-	defer discoverer.Close()
+	defer func() {
+		if closeErr := discoverer.Close(); closeErr != nil {
+			t.Logf("Warning: failed to close discoverer: %v", closeErr)
+		}
+	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
@@ -384,7 +405,11 @@ func TestMTURange(t *testing.T) {
 				ttl:      64,
 				security: NewSecurityConfig(10),
 			}
-			defer discoverer.Close()
+			defer func() {
+				if closeErr := discoverer.Close(); closeErr != nil {
+					t.Logf("Warning: failed to close discoverer: %v", closeErr)
+				}
+			}()
 
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
@@ -407,7 +432,11 @@ func TestContextCancellation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create discoverer: %v", err)
 	}
-	defer discoverer.Close()
+	defer func() {
+		if closeErr := discoverer.Close(); closeErr != nil {
+			t.Logf("Warning: failed to close discoverer: %v", closeErr)
+		}
+	}()
 
 	// Create a context that will be cancelled immediately
 	ctx, cancel := context.WithCancel(context.Background())
@@ -430,7 +459,11 @@ func TestTimeoutHandling(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create discoverer: %v", err)
 	}
-	defer discoverer.Close()
+	defer func() {
+		if closeErr := discoverer.Close(); closeErr != nil {
+			t.Logf("Warning: failed to close discoverer: %v", closeErr)
+		}
+	}()
 
 	if discoverer.timeout != shortTimeout {
 		t.Errorf("timeout mismatch: got %v, want %v", discoverer.timeout, shortTimeout)
@@ -443,6 +476,11 @@ func TestCloseDiscoverer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create discoverer: %v", err)
 	}
+	defer func() {
+		if closeErr := discoverer.Close(); closeErr != nil {
+			t.Logf("Warning: failed to close discoverer: %v", closeErr)
+		}
+	}()
 
 	// Test that Close() doesn't return an error for TCP/UDP (no connection to close)
 	err = discoverer.Close()
@@ -464,7 +502,11 @@ func BenchmarkNewMTUDiscoverer(b *testing.B) {
 		if err != nil {
 			b.Errorf("failed to create discoverer: %v", err)
 		}
-		discoverer.Close()
+		defer func() {
+			if closeErr := discoverer.Close(); closeErr != nil {
+				b.Logf("Warning: failed to close discoverer: %v", closeErr)
+			}
+		}()
 	}
 }
 
@@ -480,6 +522,8 @@ func BenchmarkResolveTarget(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		discoverer.resolveTarget()
+		if err := discoverer.resolveTarget(); err != nil {
+			b.Errorf("resolveTarget() failed: %v", err)
+		}
 	}
 }

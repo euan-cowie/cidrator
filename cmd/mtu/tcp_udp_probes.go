@@ -91,7 +91,23 @@ func (p *TCPProber) ProbeTCP(ctx context.Context, size int) *ProbeResult {
 			Error:   err,
 		}
 	}
-	defer conn.Close()
+	defer func() {
+		if closeErr := conn.Close(); closeErr != nil {
+			// Log close error but don't override main error
+			_ = closeErr // Silence linter
+		}
+	}()
+
+	// Set deadline
+	deadline := time.Now().Add(p.timeout)
+	if err := conn.SetDeadline(deadline); err != nil {
+		return &ProbeResult{
+			Size:    size,
+			Success: false,
+			RTT:     time.Since(start),
+			Error:   err,
+		}
+	}
 
 	// For TCP, successful connection means the packet got through
 	// In a real implementation, we'd need to set DF bit and handle ICMP responses
@@ -116,11 +132,23 @@ func (p *UDPProber) ProbeUDP(ctx context.Context, size int) *ProbeResult {
 			Error:   err,
 		}
 	}
-	defer conn.Close()
+	defer func() {
+		if closeErr := conn.Close(); closeErr != nil {
+			// Log close error but don't override main error
+			_ = closeErr // Silence linter
+		}
+	}()
 
 	// Set deadline
 	deadline := time.Now().Add(p.timeout)
-	conn.SetDeadline(deadline)
+	if err := conn.SetDeadline(deadline); err != nil {
+		return &ProbeResult{
+			Size:    size,
+			Success: false,
+			RTT:     time.Since(start),
+			Error:   err,
+		}
+	}
 
 	// Create payload of specified size
 	payload := make([]byte, size)
