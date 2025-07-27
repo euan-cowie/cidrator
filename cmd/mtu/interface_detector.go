@@ -8,6 +8,9 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+
+	"golang.org/x/net/route"
+	"golang.org/x/sys/unix"
 )
 
 // NetworkInterface represents a network interface with MTU information
@@ -20,6 +23,22 @@ type NetworkInterface struct {
 // InterfaceResult represents the result of interface detection
 type InterfaceResult struct {
 	Interfaces []NetworkInterface `json:"interfaces"`
+}
+
+var ifTypeMap = map[int]string{
+	unix.IFT_ETHER: "ethernet",
+	// unix.IFT_IEEE80211: "wifi",
+	unix.IFT_LOOP:   "loopback",
+	unix.IFT_BRIDGE: "bridge",
+	unix.IFT_PPP:    "ppp",
+	unix.IFT_L2VLAN: "vlan",
+	unix.IFT_GIF:    "tunnel",
+	unix.IFT_STF:    "tunnel",
+	// unix.IFT_UTUN:      "tunnel",
+	unix.IFT_OTHER: "virtual",
+	// Manually add the Apple Wi-Fi and utun constants:
+	0x47: "wifi",   // IFT_IEEE80211
+	0xf9: "tunnel", // IFT_UTUN
 }
 
 // GetNetworkInterfaces returns all network interfaces with their MTU values
@@ -58,9 +77,39 @@ func GetNetworkInterfaces() (*InterfaceResult, error) {
 	return &InterfaceResult{Interfaces: result}, nil
 }
 
+func getInterfaceTypeFromOS(ifName string) (string, bool) {
+	rib, err := route.FetchRIB(0, route.RIBTypeInterface, 0)
+	if err != nil {
+		return "", false
+	}
+	msgs, err := route.ParseRIB(route.RIBTypeInterface, rib)
+	if err != nil {
+		return "", false
+	}
+	for _, m := range msgs {
+		imsg, ok := m.(*route.InterfaceMessage)
+		if !ok || imsg.Name != ifName {
+			continue
+		}
+		for _, sys := range imsg.Sys() {
+			if imx, ok := sys.(*route.InterfaceMetrics); ok {
+				if s, exists := ifTypeMap[imx.Type]; exists {
+					return s, true
+				}
+				return "unknown", true
+			}
+		}
+	}
+	return "", false
+}
+
 // determineInterfaceType determines the type of network interface
 func determineInterfaceType(name string, flags net.Flags) string {
 	name = strings.ToLower(name)
+
+	if t, ok := getInterfaceTypeFromOS(name); ok { // <- build‑tagged helpers
+		return t
+	}
 
 	// Check for loopback
 	if flags&net.FlagLoopback != 0 {
@@ -68,30 +117,7 @@ func determineInterfaceType(name string, flags net.Flags) string {
 	}
 
 	// Common interface name patterns
-	switch {
-	case strings.HasPrefix(name, "lo"):
-		return "loopback"
-	case strings.HasPrefix(name, "eth"), strings.HasPrefix(name, "en"),
-		strings.HasPrefix(name, "em"), strings.HasPrefix(name, "eno"):
-		return "ethernet"
-	case strings.HasPrefix(name, "wlan"), strings.HasPrefix(name, "wl"),
-		strings.HasPrefix(name, "wifi"), strings.HasPrefix(name, "ath"):
-		return "wireless"
-	case strings.HasPrefix(name, "tun"), strings.HasPrefix(name, "tap"):
-		return "tunnel"
-	case strings.HasPrefix(name, "br"):
-		return "bridge"
-	case strings.HasPrefix(name, "docker"), strings.HasPrefix(name, "veth"):
-		return "virtual"
-	case strings.HasPrefix(name, "ppp"):
-		return "ppp"
-	case strings.HasPrefix(name, "bond"):
-		return "bond"
-	case strings.HasPrefix(name, "vlan"):
-		return "vlan"
-	default:
-		return "unknown"
-	}
+	return "unknown"
 }
 
 // getPlatformSpecificMTU gets MTU using platform-specific methods
@@ -125,11 +151,20 @@ func getLinuxMTU(interfaceName string) (int, error) {
 	return strconv.Atoi(mtuStr)
 }
 
-// getDarwinMTU uses ifconfig to get MTU on macOS
+// getDarwinMTU gets MTU on macOS
 func getDarwinMTU(interfaceName string) (int, error) {
-	// Try to parse from route table or use a system call
-	// For now, return error to fall back to net.Interface.MTU
-	return 0, fmt.Errorf("platform-specific MTU detection not implemented for macOS")
+	// Open a dummy datagram socket; required for the ioctl.
+	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM, 0)
+	if err != nil {
+		return 0, fmt.Errorf("socket: %w", err)
+	}
+	defer unix.Close(fd)
+
+	ifr, err := unix.IoctlGetIfreqMTU(fd, interfaceName) // <- libSystem wrapper
+	if err != nil {
+		return 0, fmt.Errorf("ioctl SIOCGIFMTU: %w", err)
+	}
+	return int(ifr.MTU), nil
 }
 
 // getWindowsMTU gets MTU on Windows
