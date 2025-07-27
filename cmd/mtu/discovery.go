@@ -6,12 +6,9 @@ import (
 	"net"
 	"time"
 
-	"runtime"
-
 	"golang.org/x/net/icmp"
 	"golang.org/x/net/ipv4"
 	"golang.org/x/net/ipv6"
-	"golang.org/x/sys/unix"
 )
 
 // ProbeResult represents the result of a single MTU probe
@@ -859,44 +856,9 @@ func (d *MTUDiscoverer) setDontFragmentSocket() error {
 
 // setIPv4DontFragment sets DF flag for IPv4 using platform-specific constants
 func (d *MTUDiscoverer) setIPv4DontFragment() error {
-	var fd int
-	var sockErr error
-
 	switch conn := d.conn.(type) {
 	case *net.IPConn:
-		rawConn, err := conn.SyscallConn()
-		if err != nil {
-			return fmt.Errorf("failed to get syscall conn: %w", err)
-		}
-
-		err = rawConn.Control(func(f uintptr) {
-			fd = int(f)
-
-			// Platform-specific DF flag setting
-			var opt, arg int
-			switch runtime.GOOS {
-			case "darwin", "freebsd", "openbsd", "netbsd":
-				// BSD systems use IP_DONTFRAG
-				opt = unix.IP_DONTFRAG
-				arg = 1
-			// case "linux":
-			// 	// Linux uses IP_MTU_DISCOVER
-			// 	opt = unix.IP_MTU_DISCOVER
-			// 	arg = unix.IP_PMTUDISC_DO
-			default:
-				sockErr = fmt.Errorf("unsupported OS: %s", runtime.GOOS)
-				return
-			}
-
-			sockErr = unix.SetsockoptInt(fd, unix.IPPROTO_IP, opt, arg)
-			if sockErr == nil {
-				fmt.Printf("✅ Successfully set DF flag on %s\n", runtime.GOOS)
-			}
-		})
-		if err != nil {
-			return fmt.Errorf("failed to control raw conn: %w", err)
-		}
-		return sockErr
+		return setIPv4DontFragment(conn)
 	default:
 		return fmt.Errorf("unsupported connection type: %T", conn)
 	}
@@ -904,28 +866,9 @@ func (d *MTUDiscoverer) setIPv4DontFragment() error {
 
 // setIPv6DontFragment sets DF flag for IPv6
 func (d *MTUDiscoverer) setIPv6DontFragment() error {
-	// IPv6 implementation - fragmentation only at source
-	var fd int
-	var sockErr error
-
 	switch conn := d.conn.(type) {
 	case *net.IPConn:
-		rawConn, err := conn.SyscallConn()
-		if err != nil {
-			return fmt.Errorf("failed to get syscall conn: %w", err)
-		}
-
-		err = rawConn.Control(func(f uintptr) {
-			fd = int(f)
-			sockErr = unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_DONTFRAG, 1)
-			if sockErr == nil {
-				fmt.Printf("✅ Successfully set IPv6 DF flag\n")
-			}
-		})
-		if err != nil {
-			return fmt.Errorf("failed to control raw conn: %w", err)
-		}
-		return sockErr
+		return setIPv6DontFragment(conn)
 	default:
 		return fmt.Errorf("unsupported connection type: %T", conn)
 	}
