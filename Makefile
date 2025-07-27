@@ -36,7 +36,7 @@ build: ## 🔨 Build the binary
 .PHONY: test
 test: ## 🧪 Run all tests
 	@echo "$(BLUE)Running tests...$(NC)"
-	@go test -v -race ./...
+	@go test -race ./...
 
 .PHONY: test-quick
 test-quick: ## ⚡ Quick tests (no race detection)

@@ -158,7 +158,9 @@ func getDarwinMTU(interfaceName string) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("socket: %w", err)
 	}
-	defer unix.Close(fd)
+	defer func() {
+		_ = unix.Close(fd) // Explicitly ignore close error
+	}()
 
 	ifr, err := unix.IoctlGetIfreqMTU(fd, interfaceName) // <- libSystem wrapper
 	if err != nil {

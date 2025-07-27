@@ -206,13 +206,26 @@ func (d *MTUDiscoverer) DiscoverHopByHopMTU(ctx context.Context, maxTTL int, max
 		default:
 		}
 
-		// Use a safe packet size for basic hop discovery
-		hop := d.probeHop(ctx, ttl, maxProbeSize)
+		// First, do a basic probe to identify the hop
+		hop := d.probeHop(ctx, ttl, 1000)
+
+		// If we get a response, discover the maximum MTU to this hop
+		if hop.Addr != nil && hop.Error == "" {
+			// Discover MTU to this specific hop
+			hopMTU := d.discoverMTUToHop(ctx, ttl, 576, 1600)
+			if hopMTU > 0 {
+				hop.MTU = hopMTU
+				fmt.Printf("Hop %d: %s (Path MTU to this hop: %d bytes)\n", ttl, hop.Addr, hopMTU)
+			} else {
+				fmt.Printf("Hop %d: %s (MTU discovery failed)\n", ttl, hop.Addr)
+			}
+		}
+
 		hops = append(hops, hop)
 
 		// Check if we've reached the destination
 		if d.isDestinationReached(hop) {
-			// For the final hop (destination), use regular PMTU discovery
+			// For the final hop (destination), use regular PMTU discovery for more accurate results
 			result, err := d.DiscoverPMTU(ctx, 576, maxProbeSize)
 			if err == nil {
 				finalPMTU = result.PMTU
@@ -220,12 +233,6 @@ func (d *MTUDiscoverer) DiscoverHopByHopMTU(ctx context.Context, maxTTL int, max
 				fmt.Printf("Reached destination at hop %d with PMTU: %d bytes\n", ttl, result.PMTU)
 			}
 			break
-		}
-
-		// For intermediate hops, MTU discovery is complex without proper DF flag support
-		// Instead, we'll note that this is a limitation and show the hop information
-		if hop.Addr != nil {
-			fmt.Printf("Hop %d: %s (MTU discovery requires DF flag support)\n", ttl, hop.Addr)
 		}
 
 		// If we timeout consistently, we might have reached the end or hit a firewall
@@ -555,6 +562,43 @@ func (d *MTUDiscoverer) probeHop(ctx context.Context, ttl int, size int) *HopInf
 	return hop
 }
 
+// discoverMTUToHop performs MTU discovery to a specific hop by testing forwarding capacity
+func (d *MTUDiscoverer) discoverMTUToHop(ctx context.Context, hopTTL int, minMTU, maxMTU int) int {
+	// Binary search for maximum packet size that can reach this hop
+	low := minMTU
+	high := maxMTU
+	lastWorking := 0
+
+	for low <= high {
+		mid := (low + high) / 2
+
+		select {
+		case <-ctx.Done():
+			return lastWorking
+		default:
+		}
+
+		// Test if a packet of this size can reach the target hop
+		if d.canReachHopWithSize(ctx, hopTTL, mid) {
+			lastWorking = mid
+			low = mid + 1
+		} else {
+			high = mid - 1
+		}
+	}
+
+	return lastWorking
+}
+
+// canReachHopWithSize tests if a packet of given size can reach the specified hop
+func (d *MTUDiscoverer) canReachHopWithSize(ctx context.Context, hopTTL int, size int) bool {
+	hop := d.probeHop(ctx, hopTTL, size)
+
+	// If we get a response from this hop (TTL exceeded), the packet reached it successfully
+	// If we get timeout or fragmentation error, the packet was too big for some hop in the path
+	return hop.Addr != nil && hop.Error == ""
+}
+
 // isDestinationReached checks if we've reached our intended destination
 func (d *MTUDiscoverer) isDestinationReached(hop *HopInfo) bool {
 	if hop.Addr == nil {
@@ -605,30 +649,6 @@ func (d *MTUDiscoverer) createICMPPacket(payloadSize int) ([]byte, error) {
 				Data: payload,
 			},
 		}
-	}
-
-	return msg.Marshal(nil)
-}
-
-// createICMPv6Packet creates an IPv6 ICMP packet (DF is implicit in IPv6)
-func (d *MTUDiscoverer) createICMPv6Packet(payloadSize int) ([]byte, error) {
-	// Calculate payload size (subtract ICMP header)
-	dataSize := payloadSize - 8
-	if dataSize < 0 {
-		dataSize = 0
-	}
-
-	// Create payload with security randomization
-	payload := d.security.Randomizer.GenerateRandomPayload(dataSize)
-
-	msg := &icmp.Message{
-		Type: ipv6.ICMPTypeEchoRequest,
-		Code: 0,
-		Body: &icmp.Echo{
-			ID:   d.security.Randomizer.GenerateRandomID(),
-			Seq:  d.security.Randomizer.GenerateRandomSeq(),
-			Data: payload,
-		},
 	}
 
 	return msg.Marshal(nil)
