@@ -38,6 +38,8 @@ func runDiscover(cmd *cobra.Command, args []string) error {
 	jsonOutput, _ := cmd.Flags().GetBool("json")
 	quiet, _ := cmd.Flags().GetBool("quiet")
 	_, _ = cmd.Flags().GetInt("pps") // pps - TODO: implement rate limiting
+	hopsMode, _ := cmd.Flags().GetBool("hops")
+	maxHops, _ := cmd.Flags().GetInt("max-hops")
 
 	// Set default timeout if not specified
 	if timeout == 0 {
@@ -53,16 +55,26 @@ func runDiscover(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Hop-by-hop discovery only supports ICMP
+	if hopsMode && proto != "icmp" {
+		return fmt.Errorf("hop-by-hop discovery only supports ICMP protocol")
+	}
+
 	if !quiet {
-		fmt.Printf("Discovering MTU to %s...\n", destination)
-		fmt.Printf("Protocol: %s, Range: %d-%d, Timeout: %v\n", proto, minMTU, maxMTU, timeout)
+		if hopsMode {
+			fmt.Printf("Hop-by-hop MTU discovery to %s...\n", destination)
+			fmt.Printf("Protocol: %s, Max probe size: %d, Max hops: %d, Timeout: %v\n", proto, maxMTU, maxHops, timeout)
+		} else {
+			fmt.Printf("Discovering MTU to %s...\n", destination)
+			fmt.Printf("Protocol: %s, Range: %d-%d, Timeout: %v\n", proto, minMTU, maxMTU, timeout)
+		}
 	}
 
 	// Get TTL value
 	ttl, _ := cmd.Flags().GetInt("ttl")
 
 	// Create context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second) // Longer timeout for hop-by-hop
 	defer cancel()
 
 	// Create MTU discoverer
@@ -77,17 +89,32 @@ func runDiscover(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
-	// Perform MTU discovery
-	result, err := discoverer.DiscoverPMTU(ctx, minMTU, maxMTU)
-	if err != nil {
-		return fmt.Errorf("MTU discovery failed: %w", err)
-	}
+	// Perform discovery based on mode
+	if hopsMode {
+		// Hop-by-hop discovery
+		hopResult, err := discoverer.DiscoverHopByHopMTU(ctx, maxHops, maxMTU)
+		if err != nil {
+			return fmt.Errorf("hop-by-hop MTU discovery failed: %w", err)
+		}
 
-	// Output result
-	if jsonOutput {
-		return outputJSON(result)
+		// Output hop-by-hop result
+		if jsonOutput {
+			return outputHopJSON(hopResult)
+		}
+		return outputHopTable(hopResult)
+	} else {
+		// Regular PMTU discovery
+		result, err := discoverer.DiscoverPMTU(ctx, minMTU, maxMTU)
+		if err != nil {
+			return fmt.Errorf("MTU discovery failed: %w", err)
+		}
+
+		// Output result
+		if jsonOutput {
+			return outputJSON(result)
+		}
+		return outputTable(result)
 	}
-	return outputTable(result)
 }
 
 // MTUResult represents the result of MTU discovery
@@ -120,5 +147,101 @@ func outputTable(result *MTUResult) error {
 	fmt.Printf("TCP MSS: %d\n", result.MSS)
 	fmt.Printf("Hops: %d\n", result.Hops)
 	fmt.Printf("Elapsed: %dms\n", result.ElapsedMS)
+	return nil
+}
+
+// outputHopJSON outputs hop-by-hop discovery results in JSON format
+func outputHopJSON(result *HopMTUResult) error {
+	fmt.Printf("{\n")
+	fmt.Printf("  \"target\": \"%s\",\n", result.Target)
+	fmt.Printf("  \"protocol\": \"%s\",\n", result.Protocol)
+	fmt.Printf("  \"max_probe_size\": %d,\n", result.MaxProbeSize)
+	fmt.Printf("  \"final_pmtu\": %d,\n", result.FinalPMTU)
+	fmt.Printf("  \"elapsed_ms\": %d,\n", result.ElapsedMS)
+	fmt.Printf("  \"hops\": [\n")
+
+	for i, hop := range result.Hops {
+		fmt.Printf("    {\n")
+		fmt.Printf("      \"hop\": %d,\n", hop.Hop)
+		if hop.Addr != nil {
+			fmt.Printf("      \"addr\": \"%s\",\n", hop.Addr.String())
+		}
+		if hop.MTU > 0 {
+			fmt.Printf("      \"mtu\": %d,\n", hop.MTU)
+		}
+		fmt.Printf("      \"rtt\": %.2f,\n", float64(hop.RTT.Nanoseconds())/1000000.0)
+		if hop.Timeout {
+			fmt.Printf("      \"timeout\": true,\n")
+		}
+		if hop.Error != "" {
+			fmt.Printf("      \"error\": \"%s\",\n", hop.Error)
+		}
+		// Remove trailing comma
+		fmt.Printf("      \"hop_number\": %d\n", hop.Hop)
+		if i < len(result.Hops)-1 {
+			fmt.Printf("    },\n")
+		} else {
+			fmt.Printf("    }\n")
+		}
+	}
+
+	fmt.Printf("  ]\n")
+	fmt.Printf("}\n")
+	return nil
+}
+
+// outputHopTable outputs hop-by-hop discovery results in table format
+func outputHopTable(result *HopMTUResult) error {
+	fmt.Printf("\nHop-by-hop MTU Discovery Results:\n")
+	fmt.Printf("Target: %s\n", result.Target)
+	fmt.Printf("Protocol: %s\n", result.Protocol)
+	fmt.Printf("Max probe size: %d bytes\n", result.MaxProbeSize)
+	if result.FinalPMTU > 0 {
+		fmt.Printf("Final PMTU: %d bytes\n", result.FinalPMTU)
+	}
+	fmt.Printf("Total time: %dms\n\n", result.ElapsedMS)
+
+	// Print table header
+	fmt.Printf("%-4s %-15s %-6s %-10s %s\n", "Hop", "Address", "MTU", "RTT", "Status")
+	fmt.Printf("%-4s %-15s %-6s %-10s %s\n", "---", "---------------", "-----", "----------", "------")
+
+	// Print each hop
+	for _, hop := range result.Hops {
+		// Hop number
+		fmt.Printf("%-4d ", hop.Hop)
+
+		// Address
+		addr := ""
+		if hop.Addr != nil {
+			addr = hop.Addr.String()
+		}
+		fmt.Printf("%-15s ", addr)
+
+		// MTU
+		mtu := ""
+		if hop.MTU > 0 {
+			mtu = fmt.Sprintf("%d", hop.MTU)
+		}
+		fmt.Printf("%-6s ", mtu)
+
+		// RTT
+		rtt := ""
+		if !hop.Timeout && hop.Error == "" {
+			rtt = fmt.Sprintf("%.2fms", float64(hop.RTT.Nanoseconds())/1000000.0)
+		}
+		fmt.Printf("%-10s ", rtt)
+
+		// Status
+		status := ""
+		if hop.Timeout {
+			status = "timeout"
+		} else if hop.Error != "" {
+			status = hop.Error
+		} else if hop.Addr != nil {
+			status = "ok"
+		}
+		fmt.Printf("%s\n", status)
+	}
+
 	return nil
 }

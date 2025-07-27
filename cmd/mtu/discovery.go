@@ -6,9 +6,12 @@ import (
 	"net"
 	"time"
 
+	"runtime"
+
 	"golang.org/x/net/icmp"
 	"golang.org/x/net/ipv4"
 	"golang.org/x/net/ipv6"
+	"golang.org/x/sys/unix"
 )
 
 // ProbeResult represents the result of a single MTU probe
@@ -25,6 +28,27 @@ type ICMPError struct {
 	Type    int
 	Code    int
 	Message string
+	MTU     int // MTU value from ICMP error (0 if not available)
+}
+
+// HopInfo represents information about a single hop in the path
+type HopInfo struct {
+	Hop     int           `json:"hop"`
+	Addr    net.IP        `json:"addr,omitempty"`
+	MTU     int           `json:"mtu,omitempty"` // 0 if unchanged from previous hop
+	RTT     time.Duration `json:"rtt"`
+	Timeout bool          `json:"timeout,omitempty"`
+	Error   string        `json:"error,omitempty"`
+}
+
+// HopMTUResult represents the result of hop-by-hop MTU discovery
+type HopMTUResult struct {
+	Target       string     `json:"target"`
+	Protocol     string     `json:"protocol"`
+	MaxProbeSize int        `json:"max_probe_size"`
+	FinalPMTU    int        `json:"final_pmtu"`
+	Hops         []*HopInfo `json:"hops"`
+	ElapsedMS    int        `json:"elapsed_ms"`
 }
 
 // MTUDiscoverer handles Path-MTU discovery
@@ -111,6 +135,7 @@ func (d *MTUDiscoverer) setupConnection() error {
 	if d.ipv6 {
 		network = "ip6:ipv6-icmp"
 	} else {
+		// Use standard ICMP socket and rely on socket options for DF flag
 		network = "ip4:icmp"
 	}
 
@@ -120,6 +145,13 @@ func (d *MTUDiscoverer) setupConnection() error {
 	}
 
 	d.conn = conn
+
+	// Set DF flag for MTU discovery using proper socket options
+	if err := d.setDontFragmentSocket(); err != nil {
+		// Don't fail completely, but warn user
+		fmt.Printf("Warning: Failed to set DF flag via socket options: %v\n", err)
+	}
+
 	return nil
 }
 
@@ -143,6 +175,107 @@ func (d *MTUDiscoverer) DiscoverPMTU(ctx context.Context, minMTU, maxMTU int) (*
 	default:
 		return nil, fmt.Errorf("unsupported protocol: %s", d.protocol)
 	}
+}
+
+// DiscoverHopByHopMTU performs hop-by-hop MTU discovery using TTL variation
+func (d *MTUDiscoverer) DiscoverHopByHopMTU(ctx context.Context, maxTTL int, maxProbeSize int) (*HopMTUResult, error) {
+	if d.protocol != "icmp" {
+		return nil, fmt.Errorf("hop-by-hop discovery only supported for ICMP protocol")
+	}
+
+	start := time.Now()
+
+	// Use standard connection
+	if d.conn == nil {
+		if err := d.resolveTarget(); err != nil {
+			return nil, fmt.Errorf("failed to resolve target: %w", err)
+		}
+		if err := d.setupConnection(); err != nil {
+			return nil, fmt.Errorf("failed to setup connection: %w", err)
+		}
+	}
+
+	var hops []*HopInfo
+	finalPMTU := 0
+
+	// Probe each hop to discover router addresses and basic connectivity
+	for ttl := 1; ttl <= maxTTL; ttl++ {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+
+		// Use a safe packet size for basic hop discovery
+		hop := d.probeHop(ctx, ttl, maxProbeSize)
+		hops = append(hops, hop)
+
+		// Check if we've reached the destination
+		if d.isDestinationReached(hop) {
+			// For the final hop (destination), use regular PMTU discovery
+			result, err := d.DiscoverPMTU(ctx, 576, maxProbeSize)
+			if err == nil {
+				finalPMTU = result.PMTU
+				hop.MTU = result.PMTU
+				fmt.Printf("Reached destination at hop %d with PMTU: %d bytes\n", ttl, result.PMTU)
+			}
+			break
+		}
+
+		// For intermediate hops, MTU discovery is complex without proper DF flag support
+		// Instead, we'll note that this is a limitation and show the hop information
+		if hop.Addr != nil {
+			fmt.Printf("Hop %d: %s (MTU discovery requires DF flag support)\n", ttl, hop.Addr)
+		}
+
+		// If we timeout consistently, we might have reached the end or hit a firewall
+		if hop.Timeout {
+			// Try a few more hops to see if we can get through
+			consecutiveTimeouts := 1
+			for i := ttl + 1; i <= ttl+3 && i <= maxTTL; i++ {
+				extraHop := d.probeHop(ctx, i, 1000)
+				hops = append(hops, extraHop)
+				if extraHop.Timeout {
+					consecutiveTimeouts++
+				} else {
+					consecutiveTimeouts = 0
+					if d.isDestinationReached(extraHop) {
+						// Reached destination after timeouts
+						result, err := d.DiscoverPMTU(ctx, 576, maxProbeSize)
+						if err == nil {
+							finalPMTU = result.PMTU
+							extraHop.MTU = result.PMTU
+						}
+						ttl = i // Update ttl for the loop exit
+						break
+					}
+				}
+			}
+			if consecutiveTimeouts >= 3 {
+				break // Assume we've reached the end
+			}
+			ttl += 3 // Skip the extra hops we already probed
+		}
+	}
+
+	elapsed := time.Since(start)
+
+	// Use the actual path MTU as discovered by regular PMTU discovery
+	if finalPMTU == 0 {
+		result, err := d.DiscoverPMTU(ctx, 576, maxProbeSize)
+		if err == nil {
+			finalPMTU = result.PMTU
+		}
+	}
+
+	return &HopMTUResult{
+		Target:       d.target,
+		Protocol:     d.protocol,
+		MaxProbeSize: maxProbeSize,
+		FinalPMTU:    finalPMTU,
+		Hops:         hops,
+		ElapsedMS:    int(elapsed.Milliseconds()),
+	}, nil
 }
 
 // discoverICMP performs ICMP-based MTU discovery
@@ -295,7 +428,152 @@ func (d *MTUDiscoverer) probe(ctx context.Context, size int) *ProbeResult {
 	}
 }
 
-// createICMPPacket creates an ICMP Echo Request packet with the specified payload size
+// probeHop sends a single probe with specified TTL for hop-by-hop discovery
+func (d *MTUDiscoverer) probeHop(ctx context.Context, ttl int, size int) *HopInfo {
+	start := time.Now()
+
+	// Apply rate limiting
+	d.security.RateLimiter.Wait()
+
+	hop := &HopInfo{
+		Hop: ttl,
+	}
+
+	// Create packet connection with TTL control
+	var pconn interface{}
+	if d.ipv6 {
+		p := ipv6.NewPacketConn(d.conn)
+		if err := p.SetHopLimit(ttl); err != nil {
+			hop.Error = fmt.Sprintf("failed to set hop limit: %v", err)
+			hop.RTT = time.Since(start)
+			return hop
+		}
+		if err := p.SetControlMessage(ipv6.FlagHopLimit, true); err != nil {
+			hop.Error = fmt.Sprintf("failed to set control message: %v", err)
+			hop.RTT = time.Since(start)
+			return hop
+		}
+		pconn = p
+	} else {
+		p := ipv4.NewPacketConn(d.conn)
+		if err := p.SetTTL(ttl); err != nil {
+			hop.Error = fmt.Sprintf("failed to set TTL: %v", err)
+			hop.RTT = time.Since(start)
+			return hop
+		}
+		if err := p.SetControlMessage(ipv4.FlagTTL, true); err != nil {
+			hop.Error = fmt.Sprintf("failed to set control message: %v", err)
+			hop.RTT = time.Since(start)
+			return hop
+		}
+		pconn = p
+	}
+
+	// Create ICMP packet with DF flag
+	packet, err := d.createICMPPacket(size)
+	if err != nil {
+		hop.Error = fmt.Sprintf("failed to create packet: %v", err)
+		hop.RTT = time.Since(start)
+		return hop
+	}
+
+	// Send packet
+	_, err = d.conn.WriteTo(packet, d.targetAddr)
+	if err != nil {
+		hop.Error = fmt.Sprintf("failed to send packet: %v", err)
+		hop.RTT = time.Since(start)
+		return hop
+	}
+
+	// Set read deadline
+	deadline := time.Now().Add(d.timeout)
+	if err := d.conn.SetReadDeadline(deadline); err != nil {
+		hop.Error = fmt.Sprintf("failed to set read deadline: %v", err)
+		hop.RTT = time.Since(start)
+		return hop
+	}
+
+	// Read response with control message
+	response := make([]byte, 1500)
+	var n int
+	var addr net.Addr
+
+	if d.ipv6 {
+		p := pconn.(*ipv6.PacketConn)
+		var cm *ipv6.ControlMessage
+		n, cm, addr, err = p.ReadFrom(response)
+		_ = cm // For now, we don't use the control message info
+	} else {
+		p := pconn.(*ipv4.PacketConn)
+		var cm *ipv4.ControlMessage
+		n, cm, addr, err = p.ReadFrom(response)
+		_ = cm // For now, we don't use the control message info
+	}
+
+	hop.RTT = time.Since(start)
+
+	if err != nil {
+		// Check if it's a timeout
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			hop.Timeout = true
+			return hop
+		}
+		hop.Error = fmt.Sprintf("read error: %v", err)
+		return hop
+	}
+
+	// Extract source IP from response
+	if ipAddr, ok := addr.(*net.IPAddr); ok {
+		hop.Addr = ipAddr.IP
+	}
+
+	// Parse ICMP response to get MTU information
+	icmpErr := d.parseICMPResponseWithMTU(response[:n], addr)
+	if icmpErr != nil {
+		if icmpErr.MTU > 0 {
+			hop.MTU = icmpErr.MTU
+		}
+
+		// Check if this is a TTL exceeded error (normal for traceroute)
+		if (d.ipv6 && icmpErr.Type == int(ipv6.ICMPTypeTimeExceeded)) ||
+			(!d.ipv6 && icmpErr.Type == int(ipv4.ICMPTypeTimeExceeded)) {
+			// This is normal - router responded with TTL exceeded
+			return hop
+		}
+
+		// Check if this is an MTU-related error
+		if d.isFragmentationError(icmpErr) {
+			return hop
+		}
+
+		// Other ICMP error
+		hop.Error = icmpErr.Message
+		return hop
+	}
+
+	// If we get here, we got an echo reply, meaning we reached the destination
+	return hop
+}
+
+// isDestinationReached checks if we've reached our intended destination
+func (d *MTUDiscoverer) isDestinationReached(hop *HopInfo) bool {
+	if hop.Addr == nil {
+		return false
+	}
+
+	// Get the target IP to compare
+	var targetIP net.IP
+	if ipAddr, ok := d.targetAddr.(*net.IPAddr); ok {
+		targetIP = ipAddr.IP
+	} else {
+		return false
+	}
+
+	// Compare IPs
+	return hop.Addr.Equal(targetIP)
+}
+
+// createICMPPacket creates an ICMP Echo Request packet (DF flag set via socket options)
 func (d *MTUDiscoverer) createICMPPacket(payloadSize int) ([]byte, error) {
 	// Calculate payload size (subtract ICMP header)
 	dataSize := payloadSize - 8 // ICMP header is 8 bytes
@@ -327,6 +605,30 @@ func (d *MTUDiscoverer) createICMPPacket(payloadSize int) ([]byte, error) {
 				Data: payload,
 			},
 		}
+	}
+
+	return msg.Marshal(nil)
+}
+
+// createICMPv6Packet creates an IPv6 ICMP packet (DF is implicit in IPv6)
+func (d *MTUDiscoverer) createICMPv6Packet(payloadSize int) ([]byte, error) {
+	// Calculate payload size (subtract ICMP header)
+	dataSize := payloadSize - 8
+	if dataSize < 0 {
+		dataSize = 0
+	}
+
+	// Create payload with security randomization
+	payload := d.security.Randomizer.GenerateRandomPayload(dataSize)
+
+	msg := &icmp.Message{
+		Type: ipv6.ICMPTypeEchoRequest,
+		Code: 0,
+		Body: &icmp.Echo{
+			ID:   d.security.Randomizer.GenerateRandomID(),
+			Seq:  d.security.Randomizer.GenerateRandomSeq(),
+			Data: payload,
+		},
 	}
 
 	return msg.Marshal(nil)
@@ -410,6 +712,109 @@ func (d *MTUDiscoverer) parseICMPResponse(data []byte, addr net.Addr) *ICMPError
 	}
 }
 
+// parseICMPResponseWithMTU parses ICMP response to get MTU information
+func (d *MTUDiscoverer) parseICMPResponseWithMTU(data []byte, addr net.Addr) *ICMPError {
+	var proto int
+	if d.ipv6 {
+		proto = 58 // ICMPv6 protocol number
+	} else {
+		proto = 1 // ICMP protocol number
+	}
+
+	msg, err := icmp.ParseMessage(proto, data)
+	if err != nil {
+		return &ICMPError{
+			Type:    -1,
+			Code:    -1,
+			Message: "Unable to parse ICMP response",
+		}
+	}
+
+	// Check message type
+	if d.ipv6 {
+		switch msg.Type {
+		case ipv6.ICMPTypeEchoReply:
+			// Success
+			return nil
+		case ipv6.ICMPTypePacketTooBig:
+			mtu := 0
+			// Extract MTU from ICMP packet too big message
+			if packetTooBig, ok := msg.Body.(*icmp.PacketTooBig); ok {
+				mtu = packetTooBig.MTU
+			}
+			return &ICMPError{
+				Type:    int(ipv6.ICMPTypePacketTooBig),
+				Code:    msg.Code,
+				Message: "Packet Too Big",
+				MTU:     mtu,
+			}
+		case ipv6.ICMPTypeDestinationUnreachable:
+			return &ICMPError{
+				Type:    int(ipv6.ICMPTypeDestinationUnreachable),
+				Code:    msg.Code,
+				Message: "Destination Unreachable",
+			}
+		case ipv6.ICMPTypeTimeExceeded:
+			return &ICMPError{
+				Type:    int(ipv6.ICMPTypeTimeExceeded),
+				Code:    msg.Code,
+				Message: "Time Exceeded",
+			}
+		default:
+			// Try to get type as int
+			typeInt := 0
+			if icmpType, ok := msg.Type.(ipv6.ICMPType); ok {
+				typeInt = int(icmpType)
+			}
+			return &ICMPError{
+				Type:    typeInt,
+				Code:    msg.Code,
+				Message: fmt.Sprintf("ICMPv6 Type %v Code %d", msg.Type, msg.Code),
+			}
+		}
+	} else {
+		switch msg.Type {
+		case ipv4.ICMPTypeEchoReply:
+			// Success
+			return nil
+		case ipv4.ICMPTypeDestinationUnreachable:
+			errMsg := "Destination Unreachable"
+			mtu := 0
+			if msg.Code == 4 {
+				errMsg = "Fragmentation Needed and Don't Fragment was Set"
+				// Extract MTU from ICMP destination unreachable message
+				if destUnreach, ok := msg.Body.(*icmp.DstUnreach); ok && destUnreach.Data != nil && len(destUnreach.Data) >= 6 {
+					// MTU is in bytes 6-7 of the ICMP data (after the unused 4 bytes)
+					mtu = int(destUnreach.Data[4])<<8 | int(destUnreach.Data[5])
+				}
+			}
+			return &ICMPError{
+				Type:    int(ipv4.ICMPTypeDestinationUnreachable),
+				Code:    msg.Code,
+				Message: errMsg,
+				MTU:     mtu,
+			}
+		case ipv4.ICMPTypeTimeExceeded:
+			return &ICMPError{
+				Type:    int(ipv4.ICMPTypeTimeExceeded),
+				Code:    msg.Code,
+				Message: "Time Exceeded",
+			}
+		default:
+			// Try to get type as int
+			typeInt := 0
+			if icmpType, ok := msg.Type.(ipv4.ICMPType); ok {
+				typeInt = int(icmpType)
+			}
+			return &ICMPError{
+				Type:    typeInt,
+				Code:    msg.Code,
+				Message: fmt.Sprintf("ICMP Type %v Code %d", msg.Type, msg.Code),
+			}
+		}
+	}
+}
+
 // isFragmentationError checks if the ICMP error indicates fragmentation needed
 func (d *MTUDiscoverer) isFragmentationError(icmpErr *ICMPError) bool {
 	if d.ipv6 {
@@ -418,5 +823,90 @@ func (d *MTUDiscoverer) isFragmentationError(icmpErr *ICMPError) bool {
 	} else {
 		// IPv4 Destination Unreachable with Fragmentation Needed
 		return icmpErr.Type == int(ipv4.ICMPTypeDestinationUnreachable) && icmpErr.Code == 4
+	}
+}
+
+// setDontFragmentSocket sets the DF flag using proper socket options
+func (d *MTUDiscoverer) setDontFragmentSocket() error {
+	if d.ipv6 {
+		// IPv6: Try to set IPV6_DONTFRAG
+		return d.setIPv6DontFragment()
+	} else {
+		// IPv4: Use ipv4.PacketConn wrapper for proper DF flag control
+		return d.setIPv4DontFragment()
+	}
+}
+
+// setIPv4DontFragment sets DF flag for IPv4 using platform-specific constants
+func (d *MTUDiscoverer) setIPv4DontFragment() error {
+	var fd int
+	var sockErr error
+
+	switch conn := d.conn.(type) {
+	case *net.IPConn:
+		rawConn, err := conn.SyscallConn()
+		if err != nil {
+			return fmt.Errorf("failed to get syscall conn: %w", err)
+		}
+
+		err = rawConn.Control(func(f uintptr) {
+			fd = int(f)
+
+			// Platform-specific DF flag setting
+			var opt, arg int
+			switch runtime.GOOS {
+			case "darwin", "freebsd", "openbsd", "netbsd":
+				// BSD systems use IP_DONTFRAG
+				opt = unix.IP_DONTFRAG
+				arg = 1
+			// case "linux":
+			// 	// Linux uses IP_MTU_DISCOVER
+			// 	opt = unix.IP_MTU_DISCOVER
+			// 	arg = unix.IP_PMTUDISC_DO
+			default:
+				sockErr = fmt.Errorf("unsupported OS: %s", runtime.GOOS)
+				return
+			}
+
+			sockErr = unix.SetsockoptInt(fd, unix.IPPROTO_IP, opt, arg)
+			if sockErr == nil {
+				fmt.Printf("✅ Successfully set DF flag on %s\n", runtime.GOOS)
+			}
+		})
+		if err != nil {
+			return fmt.Errorf("failed to control raw conn: %w", err)
+		}
+		return sockErr
+	default:
+		return fmt.Errorf("unsupported connection type: %T", conn)
+	}
+}
+
+// setIPv6DontFragment sets DF flag for IPv6
+func (d *MTUDiscoverer) setIPv6DontFragment() error {
+	// IPv6 implementation - fragmentation only at source
+	var fd int
+	var sockErr error
+
+	switch conn := d.conn.(type) {
+	case *net.IPConn:
+		rawConn, err := conn.SyscallConn()
+		if err != nil {
+			return fmt.Errorf("failed to get syscall conn: %w", err)
+		}
+
+		err = rawConn.Control(func(f uintptr) {
+			fd = int(f)
+			sockErr = unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_DONTFRAG, 1)
+			if sockErr == nil {
+				fmt.Printf("✅ Successfully set IPv6 DF flag\n")
+			}
+		})
+		if err != nil {
+			return fmt.Errorf("failed to control raw conn: %w", err)
+		}
+		return sockErr
+	default:
+		return fmt.Errorf("unsupported connection type: %T", conn)
 	}
 }
