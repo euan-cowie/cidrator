@@ -3,10 +3,6 @@ package mtu
 import (
 	"fmt"
 	"net"
-	"os"
-	"path/filepath"
-	"runtime"
-	"strconv"
 	"strings"
 )
 
@@ -45,7 +41,7 @@ func GetNetworkInterfaces() (*InterfaceResult, error) {
 		mtu := iface.MTU
 		if mtu <= 0 {
 			// Fallback to platform-specific MTU detection
-			if platformMTU, err := getPlatformSpecificMTU(iface.Name); err == nil {
+			if platformMTU, err := getMTU(iface.Name); err == nil {
 				mtu = platformMTU
 			}
 		}
@@ -77,37 +73,6 @@ func determineInterfaceType(name string, flags net.Flags) string {
 	// Common interface name patterns
 	return "unknown"
 }
-
-// getPlatformSpecificMTU gets MTU using platform-specific methods
-func getPlatformSpecificMTU(interfaceName string) (int, error) {
-	switch runtime.GOOS {
-	case "linux":
-		return getLinuxMTU(interfaceName)
-	case "darwin":
-		return getDarwinMTU(interfaceName)
-	default:
-		return 0, fmt.Errorf("unsupported platform: %s (only Linux and Darwin are supported)", runtime.GOOS)
-	}
-}
-
-// getLinuxMTU reads MTU from /sys/class/net/*/mtu
-func getLinuxMTU(interfaceName string) (int, error) {
-	// Sanitize path to prevent directory traversal
-	path := filepath.Join("/sys/class/net/", interfaceName, "mtu")
-	if !strings.HasPrefix(path, "/sys/class/net/") {
-		return 0, fmt.Errorf("invalid interface name provided: %s", interfaceName)
-	}
-
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return 0, err
-	}
-
-	mtuStr := strings.TrimSpace(string(content))
-	return strconv.Atoi(mtuStr)
-}
-
-// Platform-specific MTU functions are defined in mtu_*.go files
 
 // GetMaxMTU returns the maximum MTU among all interfaces (useful for auto-setting --max)
 func GetMaxMTU() (int, error) {

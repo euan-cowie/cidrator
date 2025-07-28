@@ -9,7 +9,7 @@ import (
 )
 
 // getDarwinMTU gets MTU on macOS using ioctl
-func getDarwinMTU(interfaceName string) (int, error) {
+func getMTU(interfaceName string) (int, error) {
 	// Open a dummy datagram socket; required for the ioctl.
 	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM, 0)
 	if err != nil {
