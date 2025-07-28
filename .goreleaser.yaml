@@ -19,7 +19,6 @@ builds:
       - CGO_ENABLED=0
     goos:
       - linux
-      - windows
       - darwin
       - freebsd
     goarch:
@@ -30,10 +29,6 @@ builds:
       - "6"
       - "7"
     ignore:
-      - goos: windows
-        goarch: arm
-      - goos: windows
-        goarch: arm64
       - goos: freebsd
         goarch: arm
       - goos: freebsd
@@ -52,7 +47,7 @@ upx:
     compress: best
     lzma: true
     brute: true
-    goos: [linux, windows, darwin]
+    goos: [linux, darwin]
     goarch: [amd64, arm64]
 
 archives:
@@ -65,9 +60,6 @@ archives:
       {{- else if eq .Arch "386" }}i386
       {{- else }}{{ .Arch }}{{ end }}
       {{- if .Arm }}v{{ .Arm }}{{ end }}
-    format_overrides:
-      - goos: windows
-        format: zip
     files:
       - README.md
       - LICENSE
@@ -169,10 +161,10 @@ aurs:
     package: |-
       # bin
       install -Dm755 "./cidrator" "${pkgdir}/usr/bin/cidrator"
-      
+
       # license
       install -Dm644 "./LICENSE" "${pkgdir}/usr/share/licenses/cidrator/LICENSE"
-      
+
       # completions
       mkdir -p "${pkgdir}/usr/share/bash-completion/completions/"
       mkdir -p "${pkgdir}/usr/share/zsh/site-functions/"
@@ -194,11 +186,11 @@ snapcrafts:
     summary: Network analysis and manipulation toolkit
     description: |
       Cidrator is a comprehensive CLI toolkit for network analysis and manipulation.
-      
+
       Available command groups:
       - cidr: IPv4/IPv6 CIDR network analysis (explain, expand, contains, count, overlaps, divide)
       - dns: DNS analysis and lookup tools (coming soon)
-      - scan: Network scanning and discovery (coming soon)  
+      - scan: Network scanning and discovery (coming soon)
       - fw: Firewall rule generation and analysis (coming soon)
     grade: stable
     confinement: strict
@@ -255,38 +247,38 @@ release:
   mode: replace
   header: |
     ## Cidrator {{ .Tag }}
-    
+
     {{ .Date }} | [Changelog](https://github.com/euan-cowie/cidrator/blob/main/CHANGELOG.md) | [Documentation](https://github.com/euan-cowie/cidrator/wiki)
-    
+
     ### Installation
-    
+
     #### Homebrew (macOS/Linux)
     ```bash
     brew install euan-cowie/tap/cidrator
     ```
-    
+
     #### Go Install
     ```bash
     go install github.com/euan-cowie/cidrator@{{ .Tag }}
     ```
-    
+
     #### Download Binary
     Download the appropriate binary for your platform from the attachments below.
-    
+
     ### What's Changed
   footer: |
     ### Verification
-    
+
     All artifacts are signed and can be verified:
-    
+
     ```bash
     # Verify checksum
     sha256sum -c checksums.txt
-    
+
     # Verify GPG signature (if GPG key is available)
     gpg --verify checksums.txt.sig checksums.txt
     ```
-    
+
     **Full Changelog**: https://github.com/euan-cowie/cidrator/compare/{{ .PreviousTag }}...{{ .Tag }}
 
 milestones:

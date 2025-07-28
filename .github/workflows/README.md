@@ -9,7 +9,7 @@ This document describes the comprehensive CI/CD workflow system for Cidrator, in
 Runs on every push to `main`/`develop` and pull requests to `main`.
 
 **Features:**
-- ✅ **Multi-platform testing** (Ubuntu, macOS, Windows)
+- ✅ **Multi-platform testing** (Ubuntu, macOS)
 - ✅ **Multi-version Go testing** (1.21, 1.22)
 - ✅ **Code coverage with threshold** (85% minimum)
 - ✅ **Advanced linting** with golangci-lint
@@ -34,7 +34,7 @@ Automatically manages semantic versioning using go-semantic-release for optimal 
 Comprehensive release automation triggered by version tags.
 
 **Features:**
-- ✅ **Multi-platform binaries** (Linux, macOS, Windows, FreeBSD)
+- ✅ **Multi-platform binaries** (Linux, macOS, FreeBSD)
 - ✅ **Multiple architectures** (amd64, arm64, arm)
 - ✅ **Package managers** (Homebrew, APT, RPM, AUR, Snap)
 - ✅ **Security signing** with GPG
