@@ -156,7 +156,7 @@ func runTCPServer(ctx context.Context, port int, verbose bool) error {
 
 	go func() {
 		<-ctx.Done()
-		listener.Close()
+		_ = listener.Close()
 	}()
 
 	for {

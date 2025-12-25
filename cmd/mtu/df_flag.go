@@ -15,27 +15,6 @@ func setDontFragment(conn net.Conn, ipv6 bool) error {
 	return setIPv4DontFragment(conn)
 }
 
-// setDontFragmentUDP sets the DF flag on a UDP connection.
-// UDPConn needs special handling as it's not a generic net.Conn for some platforms.
-func setDontFragmentUDP(conn *net.UDPConn, ipv6 bool) error {
-	// net.UDPConn implements net.Conn, so we can use the generic function
-	return setDontFragment(conn, ipv6)
-}
-
-// setDontFragmentTCP sets the DF flag on a TCP connection.
-// TCPConn needs special handling as it's not a generic net.Conn for some platforms.
-func setDontFragmentTCP(conn *net.TCPConn, ipv6 bool) error {
-	// net.TCPConn implements net.Conn, so we can use the generic function
-	return setDontFragment(conn, ipv6)
-}
-
-// validateDFSupport checks if the platform supports DF flag setting
-func validateDFSupport() error {
-	// This is a placeholder for future platform-specific validation
-	// Currently all supported platforms (darwin, linux) support DF flags
-	return nil
-}
-
 // DFError represents an error when setting the DF flag
 type DFError struct {
 	Protocol string
