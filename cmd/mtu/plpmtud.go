@@ -90,13 +90,13 @@ func (p *PLPMTUDProber) testPacketSize(ctx context.Context, size int) bool {
 	// to a willing echo server on the specified PLP port
 	// For now, we'll simulate using UDP probes
 
-	prober, err := NewUDPProber(p.target, p.ipv6, p.options.BaseTimeout)
+	prober, err := NewUDPProber(p.target, p.ipv6, 0, p.options.BaseTimeout)
 	if err != nil {
 		return false
 	}
 
 	result := prober.ProbeUDP(ctx, size)
-	return result.Success && result.Error == nil
+	return result.Success
 }
 
 // WithPLPMTUDFallback modifies MTU discovery to use PLPMTUD when ICMP fails

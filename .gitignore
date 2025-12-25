@@ -51,4 +51,5 @@ tmp/
 temp/
 
 # Application binary
-cidrator 
+cidrator
+cidrator_linux

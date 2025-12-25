@@ -32,7 +32,7 @@ func runDiscover(cmd *cobra.Command, args []string) error {
 	proto, _ := cmd.Flags().GetString("proto")
 	minMTU, _ := cmd.Flags().GetInt("min")
 	maxMTU, _ := cmd.Flags().GetInt("max")
-	_, _ = cmd.Flags().GetInt("step") // step - TODO: implement linear sweep fallback
+	step, _ := cmd.Flags().GetInt("step")
 	timeout, _ := cmd.Flags().GetDuration("timeout")
 	_, _ = cmd.Flags().GetInt("ttl") // ttl - TODO: implement hop limit
 	jsonOutput, _ := cmd.Flags().GetBool("json")
@@ -40,6 +40,7 @@ func runDiscover(cmd *cobra.Command, args []string) error {
 	_, _ = cmd.Flags().GetInt("pps") // pps - TODO: implement rate limiting
 	hopsMode, _ := cmd.Flags().GetBool("hops")
 	maxHops, _ := cmd.Flags().GetInt("max-hops")
+	port, _ := cmd.Flags().GetInt("port")
 
 	// Set default timeout if not specified
 	if timeout == 0 {
@@ -64,6 +65,9 @@ func runDiscover(cmd *cobra.Command, args []string) error {
 		if hopsMode {
 			fmt.Printf("Hop-by-hop MTU discovery to %s...\n", destination)
 			fmt.Printf("Protocol: %s, Max probe size: %d, Max hops: %d, Timeout: %v\n", proto, maxMTU, maxHops, timeout)
+		} else if step > 0 {
+			fmt.Printf("Linear sweep MTU discovery to %s...\n", destination)
+			fmt.Printf("Protocol: %s, Range: %d-%d, Step: %d, Timeout: %v\n", proto, minMTU, maxMTU, step, timeout)
 		} else {
 			fmt.Printf("Discovering MTU to %s...\n", destination)
 			fmt.Printf("Protocol: %s, Range: %d-%d, Timeout: %v\n", proto, minMTU, maxMTU, timeout)
@@ -78,7 +82,7 @@ func runDiscover(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	// Create MTU discoverer
-	discoverer, err := NewMTUDiscoverer(destination, ipv6, proto, timeout, ttl)
+	discoverer, err := NewMTUDiscoverer(destination, ipv6, proto, port, timeout, ttl)
 	if err != nil {
 		return fmt.Errorf("failed to create discoverer: %w", err)
 	}
@@ -103,8 +107,18 @@ func runDiscover(cmd *cobra.Command, args []string) error {
 		}
 		return outputHopTable(hopResult)
 	} else {
-		// Regular PMTU discovery
-		result, err := discoverer.DiscoverPMTU(ctx, minMTU, maxMTU)
+		// Regular PMTU discovery (binary search or linear sweep)
+		var result *MTUResult
+		var err error
+
+		if step > 0 {
+			// Linear sweep mode
+			result, err = discoverer.DiscoverPMTULinear(ctx, minMTU, maxMTU, step)
+		} else {
+			// Binary search mode (default)
+			result, err = discoverer.DiscoverPMTU(ctx, minMTU, maxMTU)
+		}
+
 		if err != nil {
 			return fmt.Errorf("MTU discovery failed: %w", err)
 		}

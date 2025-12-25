@@ -5,7 +5,6 @@ package mtu
 import (
 	"fmt"
 	"net"
-	"runtime"
 	"syscall"
 )
 
@@ -19,54 +18,64 @@ const (
 
 // setIPv4DontFragment sets DF flag for IPv4 on Linux
 func setIPv4DontFragment(conn net.Conn) error {
-	switch conn := conn.(type) {
-	case *net.IPConn:
-		rawConn, err := conn.SyscallConn()
-		if err != nil {
-			return fmt.Errorf("failed to get syscall conn: %w", err)
-		}
+	var rawConn syscall.RawConn
+	var err error
 
-		var sockErr error
-		err = rawConn.Control(func(f uintptr) {
-			fd := int(f)
-			// Linux uses IP_MTU_DISCOVER with IP_PMTUDISC_DO
-			sockErr = syscall.SetsockoptInt(fd, syscall.IPPROTO_IP, IP_MTU_DISCOVER, IP_PMTUDISC_DO)
-			if sockErr == nil {
-				fmt.Printf("✅ Successfully set DF flag on %s\n", runtime.GOOS)
-			}
-		})
-		if err != nil {
-			return fmt.Errorf("failed to control raw conn: %w", err)
-		}
-		return sockErr
+	switch c := conn.(type) {
+	case *net.IPConn:
+		rawConn, err = c.SyscallConn()
+	case *net.UDPConn:
+		rawConn, err = c.SyscallConn()
+	case *net.TCPConn:
+		rawConn, err = c.SyscallConn()
 	default:
-		return fmt.Errorf("unsupported connection type: %T", conn)
+		return fmt.Errorf("unsupported connection type for DF flag: %T", conn)
 	}
+
+	if err != nil {
+		return fmt.Errorf("failed to get syscall conn: %w", err)
+	}
+
+	var sockErr error
+	err = rawConn.Control(func(f uintptr) {
+		fd := int(f)
+		// Linux uses IP_MTU_DISCOVER with IP_PMTUDISC_DO
+		sockErr = syscall.SetsockoptInt(fd, syscall.IPPROTO_IP, IP_MTU_DISCOVER, IP_PMTUDISC_DO)
+	})
+	if err != nil {
+		return fmt.Errorf("failed to control raw conn: %w", err)
+	}
+	return sockErr
 }
 
 // setIPv6DontFragment sets DF flag for IPv6 on Linux
 func setIPv6DontFragment(conn net.Conn) error {
-	switch conn := conn.(type) {
-	case *net.IPConn:
-		rawConn, err := conn.SyscallConn()
-		if err != nil {
-			return fmt.Errorf("failed to get syscall conn: %w", err)
-		}
+	var rawConn syscall.RawConn
+	var err error
 
-		var sockErr error
-		err = rawConn.Control(func(f uintptr) {
-			fd := int(f)
-			// Linux uses IPV6_MTU_DISCOVER
-			sockErr = syscall.SetsockoptInt(fd, syscall.IPPROTO_IPV6, IPV6_MTU_DISCOVER, IPV6_PMTUDISC_DO)
-			if sockErr == nil {
-				fmt.Printf("✅ Successfully set IPv6 DF flag\n")
-			}
-		})
-		if err != nil {
-			return fmt.Errorf("failed to control raw conn: %w", err)
-		}
-		return sockErr
+	switch c := conn.(type) {
+	case *net.IPConn:
+		rawConn, err = c.SyscallConn()
+	case *net.UDPConn:
+		rawConn, err = c.SyscallConn()
+	case *net.TCPConn:
+		rawConn, err = c.SyscallConn()
 	default:
-		return fmt.Errorf("unsupported connection type: %T", conn)
+		return fmt.Errorf("unsupported connection type for DF flag: %T", conn)
 	}
+
+	if err != nil {
+		return fmt.Errorf("failed to get syscall conn: %w", err)
+	}
+
+	var sockErr error
+	err = rawConn.Control(func(f uintptr) {
+		fd := int(f)
+		// Linux uses IPV6_MTU_DISCOVER
+		sockErr = syscall.SetsockoptInt(fd, syscall.IPPROTO_IPV6, IPV6_MTU_DISCOVER, IPV6_PMTUDISC_DO)
+	})
+	if err != nil {
+		return fmt.Errorf("failed to control raw conn: %w", err)
+	}
+	return sockErr
 }

@@ -139,7 +139,7 @@ func performMTUDiscovery(destination string, ipv6 bool, proto string, timeout ti
 	defer cancel()
 
 	// Create MTU discoverer
-	discoverer, err := NewMTUDiscoverer(destination, ipv6, proto, timeout, ttl)
+	discoverer, err := NewMTUDiscoverer(destination, ipv6, proto, 0, timeout, ttl)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create discoverer: %w", err)
 	}

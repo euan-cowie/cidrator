@@ -31,6 +31,7 @@ func init() {
 	MTUCmd.AddCommand(watchCmd)
 	MTUCmd.AddCommand(interfacesCmd)
 	MTUCmd.AddCommand(suggestCmd)
+	MTUCmd.AddCommand(serverCmd)
 
 	// Global flags for MTU commands
 	MTUCmd.PersistentFlags().Bool("4", false, "Force IPv4")
@@ -38,7 +39,7 @@ func init() {
 	MTUCmd.PersistentFlags().String("proto", "icmp", "Probe method (icmp|udp|tcp)")
 	MTUCmd.PersistentFlags().Int("min", 0, "Lower bound (IPv4 default: 576, IPv6: 1280)")
 	MTUCmd.PersistentFlags().Int("max", 9216, "Upper bound")
-	MTUCmd.PersistentFlags().Int("step", 16, "Granularity for linear sweep mode")
+	MTUCmd.PersistentFlags().Int("step", 0, "Granularity for linear sweep mode (0 = binary search)")
 	MTUCmd.PersistentFlags().Duration("timeout", 0, "Wait per probe (default: 2s)")
 	MTUCmd.PersistentFlags().Int("ttl", 64, "Initial hop limit")
 	MTUCmd.PersistentFlags().Bool("json", false, "Structured output")
@@ -46,4 +47,5 @@ func init() {
 	MTUCmd.PersistentFlags().Int("pps", 10, "Rate limit probes per second")
 	MTUCmd.PersistentFlags().Bool("hops", false, "Enable hop-by-hop MTU discovery (similar to tracepath)")
 	MTUCmd.PersistentFlags().Int("max-hops", 30, "Maximum hops for hop-by-hop discovery")
+	MTUCmd.PersistentFlags().Int("port", 0, "Target port for TCP/UDP probes (0 = default)")
 }

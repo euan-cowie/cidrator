@@ -58,7 +58,7 @@ func TestNewMTUDiscoverer(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			discoverer, err := NewMTUDiscoverer(tt.target, tt.ipv6, tt.protocol, tt.timeout, tt.ttl)
+			discoverer, err := NewMTUDiscoverer(tt.target, tt.ipv6, tt.protocol, 0, tt.timeout, tt.ttl)
 
 			if tt.expectError {
 				if err == nil {
@@ -197,7 +197,7 @@ func TestProtocolSupport(t *testing.T) {
 
 	for _, protocol := range protocols {
 		t.Run(protocol, func(t *testing.T) {
-			discoverer, err := NewMTUDiscoverer("localhost", false, protocol, 2*time.Second, 64)
+			discoverer, err := NewMTUDiscoverer("localhost", false, protocol, 0, 2*time.Second, 64)
 			if err != nil {
 				// Handle ICMP permission errors gracefully for non-root users
 				if protocol == "icmp" && strings.Contains(err.Error(), "operation not permitted") {
@@ -223,7 +223,7 @@ func TestProtocolSupport(t *testing.T) {
 
 // TestInvalidProtocol tests unsupported protocol handling
 func TestInvalidProtocol(t *testing.T) {
-	discoverer, err := NewMTUDiscoverer("localhost", false, "invalid", 2*time.Second, 64)
+	discoverer, err := NewMTUDiscoverer("localhost", false, "invalid", 0, 2*time.Second, 64)
 	if err != nil {
 		t.Errorf("expected no error during creation, got: %v", err)
 		return
@@ -428,7 +428,7 @@ func TestMTURange(t *testing.T) {
 
 // TestContextCancellation tests context cancellation handling
 func TestContextCancellation(t *testing.T) {
-	discoverer, err := NewMTUDiscoverer("localhost", false, "tcp", 5*time.Second, 64)
+	discoverer, err := NewMTUDiscoverer("localhost", false, "tcp", 0, 5*time.Second, 64)
 	if err != nil {
 		t.Fatalf("failed to create discoverer: %v", err)
 	}
@@ -455,7 +455,7 @@ func TestContextCancellation(t *testing.T) {
 // TestTimeoutHandling tests timeout configuration
 func TestTimeoutHandling(t *testing.T) {
 	shortTimeout := 1 * time.Millisecond // Very short timeout
-	discoverer, err := NewMTUDiscoverer("localhost", false, "tcp", shortTimeout, 64)
+	discoverer, err := NewMTUDiscoverer("localhost", false, "tcp", 0, shortTimeout, 64)
 	if err != nil {
 		t.Fatalf("failed to create discoverer: %v", err)
 	}
@@ -472,7 +472,7 @@ func TestTimeoutHandling(t *testing.T) {
 
 // TestCloseDiscoverer tests discoverer cleanup
 func TestCloseDiscoverer(t *testing.T) {
-	discoverer, err := NewMTUDiscoverer("localhost", false, "tcp", 2*time.Second, 64)
+	discoverer, err := NewMTUDiscoverer("localhost", false, "tcp", 0, 2*time.Second, 64)
 	if err != nil {
 		t.Fatalf("failed to create discoverer: %v", err)
 	}
@@ -498,7 +498,7 @@ func TestCloseDiscoverer(t *testing.T) {
 // Benchmark tests for performance validation
 func BenchmarkNewMTUDiscoverer(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		discoverer, err := NewMTUDiscoverer("localhost", false, "tcp", 2*time.Second, 64)
+		discoverer, err := NewMTUDiscoverer("localhost", false, "tcp", 0, 2*time.Second, 64)
 		if err != nil {
 			b.Errorf("failed to create discoverer: %v", err)
 		}

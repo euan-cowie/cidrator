@@ -12,6 +12,7 @@ type TCPProber struct {
 	target     string
 	targetAddr *net.TCPAddr
 	timeout    time.Duration
+	ipv6       bool
 }
 
 // UDPProber handles MTU discovery using UDP packets
@@ -19,23 +20,31 @@ type UDPProber struct {
 	target     string
 	targetAddr *net.UDPAddr
 	timeout    time.Duration
+	ipv6       bool
 }
 
 // NewTCPProber creates a new TCP-based MTU prober
-func NewTCPProber(target string, ipv6 bool, timeout time.Duration) (*TCPProber, error) {
+func NewTCPProber(target string, ipv6 bool, port int, timeout time.Duration) (*TCPProber, error) {
 	// Resolve target address
 	network := "tcp4"
 	if ipv6 {
 		network = "tcp6"
 	}
 
-	// Try common ports: 80 (HTTP), 443 (HTTPS), 22 (SSH)
-	ports := []string{"443", "80", "22"}
+	// Determine ports to try
+	var ports []string
+	if port > 0 {
+		ports = []string{fmt.Sprintf("%d", port)}
+	} else {
+		// Try common ports: 80 (HTTP), 443 (HTTPS), 22 (SSH)
+		ports = []string{"443", "80", "22"}
+	}
+
 	var addr *net.TCPAddr
 	var err error
 
-	for _, port := range ports {
-		addr, err = net.ResolveTCPAddr(network, net.JoinHostPort(target, port))
+	for _, p := range ports {
+		addr, err = net.ResolveTCPAddr(network, net.JoinHostPort(target, p))
 		if err == nil {
 			break
 		}
@@ -49,18 +58,24 @@ func NewTCPProber(target string, ipv6 bool, timeout time.Duration) (*TCPProber, 
 		target:     target,
 		targetAddr: addr,
 		timeout:    timeout,
+		ipv6:       ipv6,
 	}, nil
 }
 
 // NewUDPProber creates a new UDP-based MTU prober
-func NewUDPProber(target string, ipv6 bool, timeout time.Duration) (*UDPProber, error) {
+func NewUDPProber(target string, ipv6 bool, port int, timeout time.Duration) (*UDPProber, error) {
 	// Resolve target address
 	network := "udp4"
 	if ipv6 {
 		network = "udp6"
 	}
 
-	addr, err := net.ResolveUDPAddr(network, net.JoinHostPort(target, "53"))
+	targetPort := "53"
+	if port > 0 {
+		targetPort = fmt.Sprintf("%d", port)
+	}
+
+	addr, err := net.ResolveUDPAddr(network, net.JoinHostPort(target, targetPort))
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve UDP address: %w", err)
 	}
@@ -69,6 +84,7 @@ func NewUDPProber(target string, ipv6 bool, timeout time.Duration) (*UDPProber, 
 		target:     target,
 		targetAddr: addr,
 		timeout:    timeout,
+		ipv6:       ipv6,
 	}, nil
 }
 
@@ -97,6 +113,12 @@ func (p *TCPProber) ProbeTCP(ctx context.Context, size int) *ProbeResult {
 			_ = closeErr // Silence linter
 		}
 	}()
+
+	// Set DF flag for Path-MTU discovery (RFC 1191/8201)
+	if err := setDontFragment(conn, p.ipv6); err != nil {
+		// Log warning but continue - some systems may not support this
+		_ = err // DF flag is best-effort
+	}
 
 	// Set deadline
 	deadline := time.Now().Add(p.timeout)
@@ -139,6 +161,12 @@ func (p *UDPProber) ProbeUDP(ctx context.Context, size int) *ProbeResult {
 		}
 	}()
 
+	// Set DF flag for Path-MTU discovery (RFC 1191/8201)
+	if err := setDontFragment(conn, p.ipv6); err != nil {
+		// Log warning but continue - some systems may not support this
+		_ = err // DF flag is best-effort
+	}
+
 	// Set deadline
 	deadline := time.Now().Add(p.timeout)
 	if err := conn.SetDeadline(deadline); err != nil {
@@ -167,18 +195,26 @@ func (p *UDPProber) ProbeUDP(ctx context.Context, size int) *ProbeResult {
 		}
 	}
 
-	// Try to read response (may timeout, which is expected for most UDP probes)
+	// Try to read response (will timeout if packet was dropped/lost)
 	response := make([]byte, 1500)
 	_, err = conn.Read(response)
 	rtt := time.Since(start)
 
-	// For UDP, we consider it successful if the packet was sent
-	// ICMP errors would be detected by the OS but not always propagated
+	if err != nil {
+		return &ProbeResult{
+			Size:    size,
+			Success: false, // Strict: packet loss or timeout = failure
+			RTT:     rtt,
+			Error:   err,
+		}
+	}
+
+	// For RFC 8899 PLPMTUD, successful receipt of Echo is required
 	return &ProbeResult{
 		Size:    size,
-		Success: true, // Assume success unless we get a clear error
+		Success: true,
 		RTT:     rtt,
-		Error:   err, // Store error but don't fail the probe
+		Error:   nil,
 	}
 }
 

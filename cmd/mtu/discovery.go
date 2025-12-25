@@ -53,6 +53,7 @@ type MTUDiscoverer struct {
 	target     string
 	ipv6       bool
 	protocol   string
+	port       int
 	timeout    time.Duration
 	ttl        int
 	conn       net.PacketConn
@@ -61,11 +62,12 @@ type MTUDiscoverer struct {
 }
 
 // NewMTUDiscoverer creates a new MTU discovery instance
-func NewMTUDiscoverer(target string, ipv6 bool, protocol string, timeout time.Duration, ttl int) (*MTUDiscoverer, error) {
+func NewMTUDiscoverer(target string, ipv6 bool, protocol string, port int, timeout time.Duration, ttl int) (*MTUDiscoverer, error) {
 	d := &MTUDiscoverer{
 		target:   target,
 		ipv6:     ipv6,
 		protocol: protocol,
+		port:     port,
 		timeout:  timeout,
 		ttl:      ttl,
 		security: NewSecurityConfig(10), // Default 10 pps
@@ -172,6 +174,100 @@ func (d *MTUDiscoverer) DiscoverPMTU(ctx context.Context, minMTU, maxMTU int) (*
 	default:
 		return nil, fmt.Errorf("unsupported protocol: %s", d.protocol)
 	}
+}
+
+// DiscoverPMTULinear performs linear sweep MTU discovery with a specified step size.
+// This is useful when binary search may be unreliable due to transient network conditions.
+func (d *MTUDiscoverer) DiscoverPMTULinear(ctx context.Context, minMTU, maxMTU, step int) (*MTUResult, error) {
+	start := time.Now()
+
+	if step <= 0 {
+		step = 16 // Default step size
+	}
+
+	// For non-ICMP protocols, create the appropriate prober
+	var tcpProber *TCPProber
+	var udpProber *UDPProber
+	var err error
+
+	switch d.protocol {
+	case "tcp":
+		tcpProber, err = NewTCPProber(d.target, d.ipv6, d.port, d.timeout)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create TCP prober: %w", err)
+		}
+	case "udp":
+		udpProber, err = NewUDPProber(d.target, d.ipv6, d.port, d.timeout)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create UDP prober: %w", err)
+		}
+	case "icmp":
+		// ICMP uses d.conn which is already set up
+		if d.conn == nil {
+			if err := d.resolveTarget(); err != nil {
+				return nil, fmt.Errorf("failed to resolve target: %w", err)
+			}
+			if err := d.setupConnection(); err != nil {
+				return nil, fmt.Errorf("failed to setup connection: %w", err)
+			}
+		}
+	default:
+		return nil, fmt.Errorf("unsupported protocol: %s", d.protocol)
+	}
+
+	lastWorking := 0
+	probeCount := 0
+
+	// Linear sweep from min to max
+	for size := minMTU; size <= maxMTU; size += step {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+
+		var success bool
+		switch d.protocol {
+		case "icmp":
+			result := d.probe(ctx, size)
+			success = result.Success
+		case "tcp":
+			result := tcpProber.ProbeTCP(ctx, size)
+			success = result.Success
+		case "udp":
+			result := udpProber.ProbeUDP(ctx, size)
+			success = result.Success
+		}
+		probeCount++
+
+		if success {
+			lastWorking = size
+		} else {
+			// First failure - stop and use last working size
+			break
+		}
+	}
+
+	if lastWorking == 0 {
+		return nil, fmt.Errorf("no working MTU found in range %d-%d", minMTU, maxMTU)
+	}
+
+	elapsed := time.Since(start)
+
+	// Calculate MSS based on IP version
+	mss := lastWorking - 40 // IPv4 headers (20) + TCP headers (20)
+	if d.ipv6 {
+		mss = lastWorking - 60 // IPv6 headers (40) + TCP headers (20)
+	}
+
+	return &MTUResult{
+		Target:    d.target,
+		Protocol:  d.protocol,
+		PMTU:      lastWorking,
+		MSS:       mss,
+		Hops:      probeCount,
+		ElapsedMS: int(elapsed.Milliseconds()),
+	}, nil
 }
 
 // DiscoverHopByHopMTU performs hop-by-hop MTU discovery using TTL variation
@@ -342,7 +438,7 @@ func (d *MTUDiscoverer) discoverICMP(ctx context.Context, minMTU, maxMTU int) (*
 
 // discoverTCP performs TCP-based MTU discovery
 func (d *MTUDiscoverer) discoverTCP(ctx context.Context, minMTU, maxMTU int) (*MTUResult, error) {
-	prober, err := NewTCPProber(d.target, d.ipv6, d.timeout)
+	prober, err := NewTCPProber(d.target, d.ipv6, d.port, d.timeout)
 	if err != nil {
 		return nil, err
 	}
@@ -352,7 +448,7 @@ func (d *MTUDiscoverer) discoverTCP(ctx context.Context, minMTU, maxMTU int) (*M
 
 // discoverUDP performs UDP-based MTU discovery
 func (d *MTUDiscoverer) discoverUDP(ctx context.Context, minMTU, maxMTU int) (*MTUResult, error) {
-	prober, err := NewUDPProber(d.target, d.ipv6, d.timeout)
+	prober, err := NewUDPProber(d.target, d.ipv6, d.port, d.timeout)
 	if err != nil {
 		return nil, err
 	}

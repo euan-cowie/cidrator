@@ -324,7 +324,7 @@ func TestMTUErrorHandling(t *testing.T) {
 	})
 
 	t.Run("Context timeout", func(t *testing.T) {
-		discoverer, err := NewMTUDiscoverer("localhost", false, "tcp", 1*time.Second, 64)
+		discoverer, err := NewMTUDiscoverer("localhost", false, "tcp", 0, 1*time.Second, 64)
 		if err != nil {
 			t.Fatalf("failed to create discoverer: %v", err)
 		}
@@ -347,7 +347,7 @@ func TestMTUErrorHandling(t *testing.T) {
 	})
 
 	t.Run("Invalid MTU range", func(t *testing.T) {
-		discoverer, err := NewMTUDiscoverer("localhost", false, "tcp", 1*time.Second, 64)
+		discoverer, err := NewMTUDiscoverer("localhost", false, "tcp", 0, 1*time.Second, 64)
 		if err != nil {
 			t.Fatalf("failed to create discoverer: %v", err)
 		}
