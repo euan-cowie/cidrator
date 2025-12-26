@@ -7,15 +7,15 @@ import (
 // DNSCmd represents the dns command
 var DNSCmd = &cobra.Command{
 	Use:   "dns",
-	Short: "DNS analysis and manipulation tools",
-	Long: `DNS subcommand provides DNS analysis and manipulation tools.
+	Short: "DNS analysis and lookup tools",
+	Long: `DNS subcommand provides DNS analysis and lookup tools.
 
-Planned features:
-- lookup: Perform DNS lookups (A, AAAA, MX, TXT, etc.)
-- reverse: Reverse DNS lookups for IP addresses
-- trace: DNS query tracing and debugging
-- zone: DNS zone analysis and validation
-- benchmark: DNS server performance testing
+Available commands:
+  lookup  - Perform DNS lookups (A, AAAA, MX, TXT, CNAME, NS)
+  reverse - Reverse DNS lookups (PTR records) for IP addresses
 
-This is a scaffold for future DNS functionality.`,
+Examples:
+  cidrator dns lookup example.com
+  cidrator dns lookup example.com --type MX --format json
+  cidrator dns reverse 8.8.8.8`,
 }

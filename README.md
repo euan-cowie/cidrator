@@ -114,6 +114,8 @@ cidrator <command-group> <command> [arguments] [flags]
 
 ### **MTU Commands**
 
+> 📘 **Learn More**: Read our [Deep Dive into MTU, Fragmentation, and PMTUD](cmd/mtu/mtu_guide.md) to understand the underlying concepts.
+
 #### **🔍 Path-MTU Discovery**
 
 Discover the maximum packet size that can reach a destination without fragmentation:
