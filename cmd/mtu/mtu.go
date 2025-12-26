@@ -48,4 +48,6 @@ func init() {
 	MTUCmd.PersistentFlags().Bool("hops", false, "Enable hop-by-hop MTU discovery (similar to tracepath)")
 	MTUCmd.PersistentFlags().Int("max-hops", 30, "Maximum hops for hop-by-hop discovery")
 	MTUCmd.PersistentFlags().Int("port", 0, "Target port for TCP/UDP probes (0 = default)")
+	MTUCmd.PersistentFlags().Bool("plpmtud", false, "Enable PLPMTUD fallback for black-hole detection (RFC 4821)")
+	MTUCmd.PersistentFlags().Int("plp-port", 443, "Port for PLPMTUD probes")
 }

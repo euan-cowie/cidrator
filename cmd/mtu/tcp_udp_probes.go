@@ -131,12 +131,51 @@ func (p *TCPProber) ProbeTCP(ctx context.Context, size int) *ProbeResult {
 		}
 	}
 
-	// For TCP, successful connection means the packet got through
-	// In a real implementation, we'd need to set DF bit and handle ICMP responses
+	// Calculate payload size accounting for IP + TCP headers
+	headerSize := 40 // IPv4 (20) + TCP (20)
+	if p.ipv6 {
+		headerSize = 60 // IPv6 (40) + TCP (20)
+	}
+	payloadSize := size - headerSize
+	if payloadSize < 0 {
+		payloadSize = 0
+	}
+
+	// Send payload data to actually test the path MTU
+	payload := make([]byte, payloadSize)
+	for i := range payload {
+		payload[i] = byte(i % 256)
+	}
+
+	_, err = conn.Write(payload)
+	if err != nil {
+		return &ProbeResult{
+			Size:    size,
+			Success: false,
+			RTT:     time.Since(start),
+			Error:   err,
+		}
+	}
+
+	// Wait for any response (the echo server should respond)
+	// A timeout or error indicates the packet was too large
+	response := make([]byte, 1)
+	_, err = conn.Read(response)
+	rtt := time.Since(start)
+
+	if err != nil {
+		return &ProbeResult{
+			Size:    size,
+			Success: false,
+			RTT:     rtt,
+			Error:   err,
+		}
+	}
+
 	return &ProbeResult{
 		Size:    size,
 		Success: true,
-		RTT:     time.Since(start),
+		RTT:     rtt,
 	}
 }
 

@@ -643,6 +643,7 @@ func (d *MTUDiscoverer) probeHop(ctx context.Context, ttl int, size int) *HopInf
 
 		// Check if this is an MTU-related error
 		if d.isFragmentationError(icmpErr) {
+			hop.Error = icmpErr.Message // Mark as failure so binary search tries smaller sizes
 			return hop
 		}
 
@@ -711,9 +712,14 @@ func (d *MTUDiscoverer) isDestinationReached(hop *HopInfo) bool {
 }
 
 // createICMPPacket creates an ICMP Echo Request packet (DF flag set via socket options)
-func (d *MTUDiscoverer) createICMPPacket(payloadSize int) ([]byte, error) {
-	// Calculate payload size (subtract ICMP header)
-	dataSize := payloadSize - 8 // ICMP header is 8 bytes
+func (d *MTUDiscoverer) createICMPPacket(packetSize int) ([]byte, error) {
+	// Calculate payload size (subtract IP header + ICMP header)
+	// packetSize is the target MTU size; we must subtract full header overhead
+	ipHeaderSize := 20
+	if d.ipv6 {
+		ipHeaderSize = 40
+	}
+	dataSize := packetSize - ipHeaderSize - 8 // IP header + ICMP header (8 bytes)
 	if dataSize < 0 {
 		dataSize = 0
 	}
@@ -896,9 +902,10 @@ func (d *MTUDiscoverer) parseICMPResponseWithMTU(data []byte, addr net.Addr) *IC
 			if msg.Code == 4 {
 				errMsg = "Fragmentation Needed and Don't Fragment was Set"
 				// Extract MTU from ICMP destination unreachable message
-				if destUnreach, ok := msg.Body.(*icmp.DstUnreach); ok && destUnreach.Data != nil && len(destUnreach.Data) >= 6 {
-					// MTU is in bytes 6-7 of the ICMP data (after the unused 4 bytes)
-					mtu = int(destUnreach.Data[4])<<8 | int(destUnreach.Data[5])
+				// RFC 1191: Next-Hop MTU is in bytes 2-3 of the "unused" field
+				// In x/net/icmp, DstUnreach.Data starts with these 4 bytes
+				if destUnreach, ok := msg.Body.(*icmp.DstUnreach); ok && destUnreach.Data != nil && len(destUnreach.Data) >= 4 {
+					mtu = int(destUnreach.Data[2])<<8 | int(destUnreach.Data[3])
 				}
 			}
 			return &ICMPError{

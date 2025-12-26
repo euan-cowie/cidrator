@@ -41,6 +41,8 @@ func runDiscover(cmd *cobra.Command, args []string) error {
 	hopsMode, _ := cmd.Flags().GetBool("hops")
 	maxHops, _ := cmd.Flags().GetInt("max-hops")
 	port, _ := cmd.Flags().GetInt("port")
+	plpmtud, _ := cmd.Flags().GetBool("plpmtud")
+	plpPort, _ := cmd.Flags().GetInt("plp-port")
 
 	// Set default timeout if not specified
 	if timeout == 0 {
@@ -114,6 +116,9 @@ func runDiscover(cmd *cobra.Command, args []string) error {
 		if step > 0 {
 			// Linear sweep mode
 			result, err = discoverer.DiscoverPMTULinear(ctx, minMTU, maxMTU, step)
+		} else if plpmtud {
+			// PLPMTUD fallback mode (for black-hole detection)
+			result, err = discoverer.WithPLPMTUDFallback(ctx, minMTU, maxMTU, plpPort)
 		} else {
 			// Binary search mode (default)
 			result, err = discoverer.DiscoverPMTU(ctx, minMTU, maxMTU)
