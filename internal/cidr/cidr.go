@@ -1,6 +1,7 @@
 package cidr
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -15,16 +16,15 @@ import (
 const (
 	IPv4Bits                = 32
 	IPv6Bits                = 128
-	MaxSafeExpansionSize    = 65536 // /16 for IPv4 equivalent
-	DefaultSubnetOverhead   = 2     // Network + broadcast addresses
-	MinPointToPointPrefixV4 = 31    // /31 networks for point-to-point
-	HostRoutePrefixV4       = 32    // /32 host routes
-	HostRoutePrefixV6       = 128   // /128 host routes
+	DefaultSubnetOverhead   = 2   // Network + broadcast addresses
+	MinPointToPointPrefixV4 = 31  // /31 networks for point-to-point
+	HostRoutePrefixV4       = 32  // /32 host routes
+	HostRoutePrefixV6       = 128 // /128 host routes
 )
 
 // ExpansionOptions holds configuration for IP address expansion
 type ExpansionOptions struct {
-	Limit int // Maximum number of IPs to expand (0 = no limit, subject to safety limits)
+	Limit int // Maximum number of IPs to expand (0 = no limit)
 }
 
 // DivisionOptions holds configuration for subnet division
@@ -176,44 +176,54 @@ func calculateUsableAddresses(totalAddresses *big.Int, hostBits int) *big.Int {
 	return usable
 }
 
-// Expand lists all IP addresses in a CIDR range
-func Expand(cidr string, opts ExpansionOptions) ([]string, error) {
-	_, network, err := net.ParseCIDR(cidr)
-	if err != nil {
-		return nil, NewCIDRError("expand", cidr, ErrInvalidCIDR)
-	}
+// ExpandResult contains either an IP string or an error from streaming expansion
+type ExpandResult struct {
+	IP  string
+	Err error
+}
 
-	prefixLen, bits := network.Mask.Size()
-	hostBits := bits - prefixLen
+// Expand streams all IP addresses in a CIDR range through a channel.
+// This uses constant memory regardless of range size.
+// The channel is closed when iteration completes, an error occurs, or context is cancelled.
+// Check ExpandResult.Err on each receive for errors.
+// Pass context.Background() if cancellation is not needed.
+func Expand(ctx context.Context, cidr string, opts ExpansionOptions) <-chan ExpandResult {
+	ch := make(chan ExpandResult, 256) // Buffered for performance
 
-	// Calculate total addresses
-	totalAddresses := big.NewInt(0).Exp(big.NewInt(2), big.NewInt(int64(hostBits)), nil)
+	go func() {
+		defer close(ch)
 
-	// Check if the range is too large
-	if opts.Limit > 0 && totalAddresses.Cmp(big.NewInt(int64(opts.Limit))) > 0 {
-		return nil, NewCIDRError("expand", cidr, fmt.Errorf("range contains %s addresses, exceeds limit of %d", FormatBigInt(totalAddresses), opts.Limit))
-	}
+		_, network, err := net.ParseCIDR(cidr)
+		if err != nil {
+			select {
+			case ch <- ExpandResult{Err: NewCIDRError("expand", cidr, ErrInvalidCIDR)}:
+			case <-ctx.Done():
+			}
+			return
+		}
 
-	// For very large ranges, we need to be careful about memory
-	if totalAddresses.Cmp(big.NewInt(MaxSafeExpansionSize)) > 0 {
-		return nil, NewCIDRError("expand", cidr, ErrTooLarge)
-	}
+		currentIP := make(net.IP, len(network.IP))
+		copy(currentIP, network.IP)
 
-	var ips []string
-	currentIP := make(net.IP, len(network.IP))
-	copy(currentIP, network.IP)
+		count := 0
+		for network.Contains(currentIP) {
+			// Check limit if specified
+			if opts.Limit > 0 && count >= opts.Limit {
+				return
+			}
 
-	// Convert total addresses to int for iteration
-	totalInt := totalAddresses.Int64()
+			// Try to send, but respect context cancellation to avoid goroutine leak
+			select {
+			case ch <- ExpandResult{IP: currentIP.String()}:
+			case <-ctx.Done():
+				return
+			}
+			count++
+			incrementIP(currentIP)
+		}
+	}()
 
-	for i := int64(0); i < totalInt; i++ {
-		ips = append(ips, currentIP.String())
-
-		// Increment IP address
-		incrementIP(currentIP)
-	}
-
-	return ips, nil
+	return ch
 }
 
 // incrementIP increments an IP address by 1

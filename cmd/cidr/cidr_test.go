@@ -241,14 +241,32 @@ func TestExpandCommand(t *testing.T) {
 			},
 		},
 		{
-			name:      "IPv4 /29 with limit 5",
-			args:      []string{"expand", "10.0.0.0/29", "--limit", "5"},
-			expectErr: true, // Should exceed limit
+			name: "IPv4 /29 with limit 5",
+			args: []string{"expand", "10.0.0.0/29", "--limit", "5"},
+			checkFunc: func(t *testing.T, output string) {
+				// Streaming API respects limit without error
+				lines := strings.Split(strings.TrimSpace(output), "\n")
+				if len(lines) != 5 {
+					t.Errorf("Expected 5 IP addresses with limit, got %d", len(lines))
+				}
+				if lines[0] != "10.0.0.0" {
+					t.Errorf("Expected first IP 10.0.0.0, got %s", lines[0])
+				}
+				if lines[4] != "10.0.0.4" {
+					t.Errorf("Expected last IP 10.0.0.4, got %s", lines[4])
+				}
+			},
 		},
 		{
-			name:      "IPv4 /15 too large",
-			args:      []string{"expand", "10.0.0.0/15"},
-			expectErr: true,
+			name: "IPv4 /16 with limit streams successfully",
+			args: []string{"expand", "10.0.0.0/16", "--limit", "10"},
+			checkFunc: func(t *testing.T, output string) {
+				// Streaming handles any size with limit
+				lines := strings.Split(strings.TrimSpace(output), "\n")
+				if len(lines) != 10 {
+					t.Errorf("Expected 10 IP addresses with limit, got %d", len(lines))
+				}
+			},
 		},
 		{
 			name:      "Invalid CIDR",

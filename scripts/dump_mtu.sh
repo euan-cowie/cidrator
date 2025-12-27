@@ -5,7 +5,7 @@
 # --- [filename] ---
 # [content]
 
-find cmd/mtu -type f -name "*.go" | sort | while read -r file; do
+find . -type f -name "*.go" | sort | while read -r file; do
     echo "========================================="
     echo "File: $file"
     echo "========================================="

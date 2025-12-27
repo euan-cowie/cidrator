@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"syscall"
 	"time"
 )
 
@@ -92,13 +93,34 @@ func NewUDPProber(target string, ipv6 bool, port int, timeout time.Duration) (*U
 func (p *TCPProber) ProbeTCP(ctx context.Context, size int) *ProbeResult {
 	start := time.Now()
 
+	// Calculate target MSS to bypass TSO/GSO
+	// MSS = ProbeSize - IPHeader - TCPHeader
+	ipHeader := 20
+	if p.ipv6 {
+		ipHeader = 40
+	}
+	tcpHeader := 20
+	targetMSS := size - ipHeader - tcpHeader
+
+	// Safety check for minimum TCP MSS
+	if targetMSS < 1 {
+		targetMSS = 1
+	}
+
 	// Create TCP connection with specific socket options
 	dialer := &net.Dialer{
 		Timeout: p.timeout,
+		Control: func(network, address string, c syscall.RawConn) error {
+			return c.Control(func(fd uintptr) {
+				// FIX: Force kernel to segment at exactly our probe size
+				// This defeats TSO/GSO false positives (The "9216 Problem")
+				_ = setTCPMSS(fd, targetMSS)
+			})
+		},
 	}
 
 	// Connect to target
-	conn, err := dialer.DialContext(ctx, "tcp", p.targetAddr.String())
+	connRaw, err := dialer.DialContext(ctx, "tcp", p.targetAddr.String())
 	if err != nil {
 		return &ProbeResult{
 			Size:    size,
@@ -107,12 +129,31 @@ func (p *TCPProber) ProbeTCP(ctx context.Context, size int) *ProbeResult {
 			Error:   err,
 		}
 	}
+	conn := connRaw.(*net.TCPConn)
 	defer func() {
 		if closeErr := conn.Close(); closeErr != nil {
 			// Log close error but don't override main error
 			_ = closeErr // Silence linter
 		}
 	}()
+
+	// --- MSS Validation: Detect TSO/GSO False Positives ---
+	// If we asked for 9000 bytes (Jumbo), but the kernel negotiated 1460 (Standard),
+	// any large Write() will be segmented. This is a false positive for PMTUD.
+	actualMSS, err := getTCPMSS(conn)
+	if err == nil && actualMSS > 0 {
+		// STRICT CHECK: The payload must NOT exceed the negotiated MSS.
+		// Tolerance removed to align TCP results exactly with UDP/Wire limits.
+		if actualMSS < targetMSS {
+			return &ProbeResult{
+				Size:    size,
+				Success: false,
+				RTT:     time.Since(start),
+				Error:   fmt.Errorf("false positive detected: negotiated MSS %d < target %d (TSO/GSO active)", actualMSS, targetMSS),
+			}
+		}
+	}
+	// -------------------------------------------------------
 
 	// Set DF flag for Path-MTU discovery (RFC 1191/8201)
 	if err := setDontFragment(conn, p.ipv6); err != nil {

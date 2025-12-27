@@ -1,6 +1,7 @@
 package cidr
 
 import (
+	"context"
 	"math/big"
 	"net"
 	"strings"
@@ -401,10 +402,12 @@ func TestExpand(t *testing.T) {
 			expectedLast:  "192.168.1.3",
 		},
 		{
-			name:     "IPv4 /29 with limit",
-			cidr:     "10.0.0.0/29",
-			limit:    5,
-			hasError: true, // Should exceed limit
+			name:          "IPv4 /29 with limit",
+			cidr:          "10.0.0.0/29",
+			limit:         5,
+			expectedCount: 5, // Now respects limit, doesn't error
+			expectedFirst: "10.0.0.0",
+			expectedLast:  "10.0.0.4",
 		},
 		{
 			name:          "IPv4 /32",
@@ -415,10 +418,12 @@ func TestExpand(t *testing.T) {
 			expectedLast:  "192.168.1.1",
 		},
 		{
-			name:     "IPv4 /15 (too large)",
-			cidr:     "10.0.0.0/15",
-			limit:    0,
-			hasError: true,
+			name:          "IPv4 /16 streams without OOM",
+			cidr:          "10.0.0.0/16",
+			limit:         10, // Just get first 10 to prove streaming works
+			expectedCount: 10,
+			expectedFirst: "10.0.0.0",
+			expectedLast:  "10.0.0.9",
 		},
 		{
 			name:          "IPv6 /126",
@@ -439,7 +444,18 @@ func TestExpand(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			opts := ExpansionOptions{Limit: tt.limit}
-			result, err := Expand(tt.cidr, opts)
+			resultChan := Expand(context.Background(), tt.cidr, opts)
+
+			// Collect results from channel
+			var result []string
+			var err error
+			for r := range resultChan {
+				if r.Err != nil {
+					err = r.Err
+					break
+				}
+				result = append(result, r.IP)
+			}
 
 			assertError(t, err, tt.hasError)
 			if tt.hasError {

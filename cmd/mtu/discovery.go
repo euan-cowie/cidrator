@@ -50,15 +50,16 @@ type HopMTUResult struct {
 
 // MTUDiscoverer handles Path-MTU discovery
 type MTUDiscoverer struct {
-	target     string
-	ipv6       bool
-	protocol   string
-	port       int
-	timeout    time.Duration
-	ttl        int
-	conn       net.PacketConn
-	targetAddr net.Addr
-	security   *SecurityConfig
+	target       string
+	ipv6         bool
+	protocol     string
+	port         int
+	timeout      time.Duration
+	ttl          int
+	conn         net.PacketConn
+	targetAddr   net.Addr
+	security     *SecurityConfig
+	icmpListener *ICMPListener // Optional ICMP listener for fail-fast detection
 }
 
 // NewMTUDiscoverer creates a new MTU discovery instance
@@ -160,6 +161,13 @@ func (d *MTUDiscoverer) Close() error {
 		return d.conn.Close()
 	}
 	return nil
+}
+
+// SetICMPListener attaches an ICMP listener for fail-fast fragmentation error detection.
+// When set, the discoverer can receive ICMP "Fragmentation Needed" errors asynchronously
+// instead of relying solely on probe timeouts.
+func (d *MTUDiscoverer) SetICMPListener(listener *ICMPListener) {
+	d.icmpListener = listener
 }
 
 // DiscoverPMTU performs binary search to find the Path-MTU using the specified protocol
@@ -494,38 +502,73 @@ func (d *MTUDiscoverer) probe(ctx context.Context, size int) *ProbeResult {
 		}
 	}
 
-	// Read response
-	response := make([]byte, 1500)
-	n, addr, err := d.conn.ReadFrom(response)
-	rtt := time.Since(start)
+	// Result type for goroutine communication
+	type readResult struct {
+		n        int
+		addr     net.Addr
+		err      error
+		response []byte
+	}
 
-	if err != nil {
-		// Check if it's a timeout
-		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+	// Perform blocking read in a goroutine so we can select on multiple channels
+	readChan := make(chan readResult, 1)
+	go func() {
+		response := make([]byte, 1500)
+		n, addr, err := d.conn.ReadFrom(response)
+		readChan <- readResult{n: n, addr: addr, err: err, response: response}
+	}()
+
+	// Wait for: socket read, async ICMP error (fail-fast), or context cancellation
+	// If we have an ICMP listener, use select to enable fail-fast behavior
+	if d.icmpListener != nil {
+		select {
+		case res := <-readChan:
+			// Standard path: We got a reply (or a timeout error from the socket)
+			rtt := time.Since(start)
+			if res.err != nil {
+				if netErr, ok := res.err.(net.Error); ok && netErr.Timeout() {
+					return &ProbeResult{Size: size, Success: false, RTT: rtt, Error: res.err}
+				}
+				return &ProbeResult{Size: size, Success: false, RTT: rtt, Error: res.err}
+			}
+			// Parse ICMP response
+			icmpErr := d.parseICMPResponse(res.response[:res.n], res.addr)
+			return &ProbeResult{Size: size, Success: icmpErr == nil, RTT: rtt, ICMPErr: icmpErr}
+
+		case icmpErr := <-d.icmpListener.Errors():
+			// FAIL FAST! We received an async ICMP error from the background listener.
+			// This avoids waiting the full timeout duration.
+			rtt := time.Since(start)
 			return &ProbeResult{
 				Size:    size,
 				Success: false,
 				RTT:     rtt,
-				Error:   err,
+				ICMPErr: &ICMPError{
+					Type:    3, // Destination Unreachable
+					Code:    4, // Fragmentation Needed
+					Message: "Fragmentation Needed (fast-path)",
+					MTU:     icmpErr.NextHopMTU,
+				},
 			}
+
+		case <-ctx.Done():
+			return &ProbeResult{Size: size, Success: false, RTT: time.Since(start), Error: ctx.Err()}
 		}
-		return &ProbeResult{
-			Size:    size,
-			Success: false,
-			RTT:     rtt,
-			Error:   err,
+	}
+
+	// Fallback path: No ICMP listener available, use traditional blocking read
+	res := <-readChan
+	rtt := time.Since(start)
+	if res.err != nil {
+		if netErr, ok := res.err.(net.Error); ok && netErr.Timeout() {
+			return &ProbeResult{Size: size, Success: false, RTT: rtt, Error: res.err}
 		}
+		return &ProbeResult{Size: size, Success: false, RTT: rtt, Error: res.err}
 	}
 
 	// Parse ICMP response
-	icmpErr := d.parseICMPResponse(response[:n], addr)
-
-	return &ProbeResult{
-		Size:    size,
-		Success: icmpErr == nil,
-		RTT:     rtt,
-		ICMPErr: icmpErr,
-	}
+	icmpErr := d.parseICMPResponse(res.response[:res.n], res.addr)
+	return &ProbeResult{Size: size, Success: icmpErr == nil, RTT: rtt, ICMPErr: icmpErr}
 }
 
 // probeHop sends a single probe with specified TTL for hop-by-hop discovery

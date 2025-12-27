@@ -83,6 +83,25 @@ func runDiscover(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second) // Longer timeout for hop-by-hop
 	defer cancel()
 
+	// Initialize ICMP listener for fail-fast fragmentation error detection
+	// This runs in the background and detects ICMP "Fragmentation Needed" errors
+	// without waiting for probe timeouts. Requires elevated privileges (root/sudo).
+	var icmpListener *ICMPListener
+	icmpListener, err := NewICMPListener()
+	if err != nil {
+		// Continue without ICMP listener (non-root mode or unsupported platform)
+		if !quiet {
+			fmt.Printf("Note: ICMP listener unavailable (%v), using probe timeouts only\n", err)
+		}
+	} else {
+		icmpListener.Start(ctx)
+		defer func() {
+			if closeErr := icmpListener.Close(); closeErr != nil && !quiet {
+				fmt.Printf("Warning: failed to close ICMP listener: %v\n", closeErr)
+			}
+		}()
+	}
+
 	// Create MTU discoverer
 	discoverer, err := NewMTUDiscoverer(destination, ipv6, proto, port, timeout, ttl)
 	if err != nil {
@@ -94,6 +113,11 @@ func runDiscover(cmd *cobra.Command, args []string) error {
 			fmt.Printf("Warning: failed to close discoverer: %v\n", closeErr)
 		}
 	}()
+
+	// Wire up ICMP listener if available
+	if icmpListener != nil {
+		discoverer.SetICMPListener(icmpListener)
+	}
 
 	// Perform discovery based on mode
 	if hopsMode {

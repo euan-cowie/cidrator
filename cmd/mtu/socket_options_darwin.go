@@ -72,3 +72,42 @@ func setIPv6DontFragment(conn net.Conn) error {
 	}
 	return sockErr
 }
+
+// setTCPMSS forces the kernel to cap the segment size for this socket.
+// This helps bypass TSO/GSO by forcing the stack to packetize at this specific size.
+func setTCPMSS(fd uintptr, mss int) error {
+	return unix.SetsockoptInt(int(fd), unix.IPPROTO_TCP, unix.TCP_MAXSEG, mss)
+}
+
+// getTCPMSS retrieves the current effective MSS for the connection.
+// This allows us to detect if the kernel negotiated a smaller MSS than our probe size.
+func getTCPMSS(conn net.Conn) (int, error) {
+	var rawConn syscall.RawConn
+	var err error
+
+	switch c := conn.(type) {
+	case *net.TCPConn:
+		rawConn, err = c.SyscallConn()
+	default:
+		return 0, fmt.Errorf("unsupported connection type for TCP MSS: %T", conn)
+	}
+
+	if err != nil {
+		return 0, fmt.Errorf("failed to get syscall conn: %w", err)
+	}
+
+	var mss int
+	var sockErr error
+	err = rawConn.Control(func(f uintptr) {
+		fd := int(f)
+		mss, sockErr = unix.GetsockoptInt(fd, unix.IPPROTO_TCP, unix.TCP_MAXSEG)
+	})
+
+	if err != nil {
+		return 0, fmt.Errorf("failed to control raw conn: %w", err)
+	}
+	if sockErr != nil {
+		return 0, sockErr
+	}
+	return mss, nil
+}
