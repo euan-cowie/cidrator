@@ -1,157 +1,179 @@
-# 🚀 Quick Development Reference
+# Development guide
 
-> **TL;DR**: `make setup` → `make dev` → `make check` → commit
+This document is a working reference for local development on `cidrator`.
 
-## ⚡ Essential Commands
+## Requirements
+
+- Go toolchain `1.24.5`
+- `make`
+- `git`
+
+For Linux MTU labs:
+
+- Linux
+- `iproute2`
+- `ping`
+- `iptables` for the PLPMTUD black-hole lab
+- passwordless `sudo`
+
+## Initial setup
 
 ```bash
-# First time setup
-make setup              # One-time setup (installs everything)
-
-# Daily development
-make dev                # Build + test (use this most)
-make run ARGS="..."     # Test your changes
-make check              # Full quality check before PR
-
-# Quick reference
-make help               # Show all commands
+make setup
 ```
 
-## 🔄 Development Loop
+`make setup` is the preferred bootstrap path. It prepares dependencies, builds the project, runs a quick test pass, and offers to install optional development tools.
+
+## Common commands
+
+### Build and run
 
 ```bash
-# 1. Start feature
-git checkout -b feature/awesome-thing
-
-# 2. Make changes and test constantly
-make dev                # Quick build + test
-
-# 3. Test manually
-make run ARGS="cidr explain 192.168.1.0/24"
-
-# 4. Full check before commit
-make check
-
-# 5. Commit and push
-git commit -m "feat: add awesome thing"
-git push origin feature/awesome-thing
-```
-
-## 🧪 Testing
-
-```bash
-make test-quick         # Fast tests during development
-make test               # Full tests with race detection
-make test-integration   # Integration tests
-make test-lab           # Linux namespace MTU lab (Linux + passwordless sudo)
-make test-lab-hops      # Linux hop-by-hop MTU lab
-make test-lab-plpmtud   # Linux ICMP black-hole PLPMTUD lab
-make examples           # See examples in action
-```
-
-## 🛠️ Building
-
-```bash
-make build              # Build for current platform
-make build-all          # Build for all platforms
-make clean              # Clean build artifacts
-```
-
-## 🔧 Code Quality
-
-```bash
-make fmt                # Format code
-make vet                # Check for issues
-make lint               # Run linter (if installed)
-make lint-if-available  # Run linter if available (safe)
-```
-
-## 📦 Optional Tools
-
-```bash
-make install-tools      # Install golangci-lint, etc.
-make install-precommit  # Install pre-commit hooks
-```
-
-## 🎯 Common Tasks
-
-### **Test a specific command**
-```bash
-make run ARGS="cidr explain 10.0.0.0/8"
-make run ARGS="cidr contains 192.168.1.0/24 192.168.1.100"
+make build
 make run ARGS="--help"
+make run ARGS="cidr explain 192.168.1.0/24"
 ```
 
-### **Add a new feature**
-1. Add code to `cmd/` (CLI) and `internal/` (logic)
-2. Add tests to `*_test.go` files
-3. Test: `make dev`
-4. Quality check: `make check`
+### Day-to-day development
 
-### **Fix a bug**
-1. Write a failing test first
-2. Fix the bug
-3. Verify: `make test`
-4. Quality check: `make check`
-
-## 📂 Project Layout
-
-```
-cmd/           # CLI commands (add new commands here)
-├── cidr/      # CIDR analysis ✅ (complete)
-├── dns/       # DNS lookups and reverse lookups
-└── mtu/       # Path-MTU discovery and monitoring
-
-internal/      # Core business logic
-├── cidr/      # CIDR calculations
-├── dns/       # DNS implementation
-└── validation/ # Input validation
-
-scripts/       # Development scripts
-```
-
-## 💡 Tips
-
-- **Use `make dev` constantly** during development
-- **Run `make check` before every commit**
-- **Test manually with `make run`** to verify behavior
-- **Add tests for new features** - it's required
-- **Keep commits atomic** and use conventional format
-
-## 🐛 Troubleshooting
-
-### Build fails?
 ```bash
+make dev
+make test-quick
+make check
+```
+
+### Full test targets
+
+```bash
+make test
+make test-integration
+```
+
+### MTU lab targets
+
+```bash
+make test-lab
+make test-lab-hops
+make test-lab-plpmtud
+```
+
+### Quality tools
+
+```bash
+make fmt
+make vet
+make lint
+make lint-if-available
+```
+
+### Other useful targets
+
+```bash
+make build-all
 make clean
+make deps
+make help
+```
+
+## Suggested workflow
+
+For most changes:
+
+```bash
+make dev
+make run ARGS="cidr explain 10.0.0.0/16"
+make check
+```
+
+For MTU changes:
+
+```bash
+go test ./cmd/mtu
+go test ./...
+make test-lab           # Linux only
+make test-lab-hops      # Linux only
+make test-lab-plpmtud   # Linux only
+```
+
+If a change affects structured output, verify the JSON path directly.
+
+## Repository layout
+
+```text
+cmd/
+  cidr/    CLI commands for CIDR analysis
+  dns/     CLI commands for DNS lookups
+  mtu/     CLI commands and MTU discovery logic
+
+internal/
+  cidr/        CIDR implementation
+  dns/         DNS implementation
+  validation/  shared validation logic
+
+test/labs/
+  Linux namespace-based MTU integration labs
+```
+
+## MTU-specific notes
+
+The MTU package has three layers of verification:
+
+1. Unit tests for local logic and parsing
+2. Package-level tests for probe and command behavior
+3. Linux namespace labs for routed-path validation
+
+The Linux labs are part of CI and run on pull requests. They are the main confidence check for behavior that depends on real forwarding, MTU bottlenecks, or ICMP handling.
+
+Relevant lab scripts:
+
+- `test/labs/mtu-namespaces.sh`
+- `test/labs/mtu-hop-by-hop.sh`
+- `test/labs/mtu-plpmtud-blackhole.sh`
+
+## Troubleshooting
+
+### `golangci-lint` is not in `PATH`
+
+`make setup` attempts to install it, but your shell may need to be reloaded.
+
+Typical fix:
+
+```bash
+source ~/.zshrc
+```
+
+If needed, install tools manually:
+
+```bash
+make install-tools
+```
+
+### Tests fail after dependency or toolchain changes
+
+```bash
+go mod download
 go mod tidy
+make clean
+make test
+```
+
+### MTU labs fail locally
+
+Check the host requirements first:
+
+- Linux, not macOS
+- passwordless `sudo`
+- required commands installed
+
+Then rerun the specific target with a fresh build:
+
+```bash
 make build
+make test-lab
 ```
 
-### Tests fail?
+### Need the full command list
+
 ```bash
-make test-quick          # See specific failures
-make run ARGS="--help"   # Test if binary works
+make help
 ```
-
-### MTU lab fails?
-```bash
-make build
-make test-lab            # Requires Linux, iproute2, ping, and passwordless sudo
-make test-lab-hops       # Requires Linux, iproute2, ping, and passwordless sudo
-make test-lab-plpmtud    # Requires Linux, iproute2, iptables, ping, and passwordless sudo
-```
-
-### Linting errors?
-```bash
-make fmt                 # Fix formatting
-make vet                 # Check for issues
-```
-
-### Need help?
-- 💬 [GitHub Discussions](https://github.com/euan-cowie/cidrator/discussions)
-- 🐛 [Issues](https://github.com/euan-cowie/cidrator/issues)
-- 📖 [Contributing Guide](CONTRIBUTING.md)
-
----
-
-**⚡ Quick start: `make setup && make dev`**

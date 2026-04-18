@@ -1,194 +1,166 @@
 # Contributing to Cidrator
 
-🎉 **Thank you for contributing!** 🎉
+Thanks for taking the time to contribute.
 
-We've made contributing as simple as possible. You can be productive in under 5 minutes.
+Cidrator is deliberately narrow in scope. Good contributions usually improve correctness, portability, tests, documentation, or operator usability without expanding the public surface unnecessarily.
 
-## 🚀 Quick Start
+## Before you start
+
+- For substantial changes, open an issue or discussion first so scope and direction are clear before implementation.
+- For behavior changes, assume the CLI output may already be used in automation. Treat output changes as compatibility-sensitive.
+- For MTU work, be explicit about platform assumptions and failure modes. Networking code that is merely plausible is not enough.
+
+## Development environment
+
+Recommended local requirements:
+
+- Go toolchain `1.24.5`
+- `make`
+- `git`
+
+Optional but useful:
+
+- `golangci-lint`
+- `pre-commit`
+
+Linux is required for the namespace-based MTU lab tests.
+
+## Setup
 
 ```bash
-# 1. Fork and clone
 git clone https://github.com/YOUR_USERNAME/cidrator.git
 cd cidrator
-
-# 2. One-time setup
 make setup
-
-# 3. Make your changes, then test
-make dev
-
-# 4. Run quality checks
-make check
-
-# 5. Commit and push
-git commit -m "feat: your awesome change"
-git push origin your-branch-name
 ```
 
-**That's it!** Create a PR and we'll review it.
+`make setup` builds the project, downloads dependencies, runs a quick test pass, and offers to install optional development tools.
 
-## 🛠️ Development Commands
-
-```bash
-make help           # Show all commands
-make dev            # Quick build + test (use this most)
-make run ARGS="..." # Test your changes
-make check          # Full checks before PR
-```
-
-## 🆘 Troubleshooting
-
-### golangci-lint: command not found
-
-If you see this error after running `make setup`:
-
-**Quick fix:**
-```bash
-# Restart your terminal, OR
-source ~/.zshrc    # for zsh (macOS default)
-source ~/.bash_profile  # for bash
-```
-
-**Manual fix if needed:**
-```bash
-# Add Go's bin directory to your PATH
-echo 'export PATH="$PATH:$(go env GOPATH)/bin"' >> ~/.zshrc
-source ~/.zshrc
-```
-
-**Why this happens:** golangci-lint installs to `$(go env GOPATH)/bin` (usually `~/go/bin`), but this directory might not be in your shell's PATH. Our setup script tries to fix this automatically, but sometimes requires a terminal restart.
-
-### Other Common Issues
-
-**Tests failing after setup:**
-```bash
-make clean && make build && make test
-```
-
-**Dependencies out of sync:**
-```bash
-go mod download && go mod tidy
-```
-
-**Can't find `make` command:**
-- **macOS:** Install Xcode Command Line Tools: `xcode-select --install`
-- **Linux:** Install build-essential: `sudo apt-get install build-essential`
-
-**Wrong Go version:**
-- Cidrator requires Go 1.24.5
-- Check: `go version`
-- Update: [https://golang.org/dl/](https://golang.org/dl/)
-
-## 📝 Commit Messages
-
-Use [conventional commits](https://www.conventionalcommits.org/):
+If you prefer a manual setup:
 
 ```bash
-feat: add awesome feature
-fix: resolve memory leak
-docs: update readme
-test: add unit tests
-```
-
-**Types:** `feat`, `fix`, `docs`, `test`, `refactor`, `chore`
-
-## 🧪 Testing
-
-```bash
-# Quick test during development
+go mod download
+go mod tidy
+make build
 make test-quick
+```
 
-# Full tests before PR
-make test
+## Development workflow
 
-# Linux namespace MTU lab
-make test-lab
+1. Create a branch for your change.
+2. Make the smallest change that solves the problem cleanly.
+3. Run fast checks during iteration.
+4. Run the full checks before opening a pull request.
+5. Update tests and documentation when behavior changes.
 
-# Linux hop-by-hop MTU lab
-make test-lab-hops
+Typical loop:
 
-# Linux ICMP black-hole PLPMTUD lab
-make test-lab-plpmtud
-
-# Test your changes manually
+```bash
+make dev
 make run ARGS="cidr explain 192.168.1.0/24"
+make check
 ```
 
-## 🎯 What to Work On
+## Standards
 
-**Good first issues:** Look for the [`good first issue`](https://github.com/euan-cowie/cidrator/labels/good%20first%20issue) label
+### Scope
 
-**High-impact areas:**
-- **DNS Tools** (`cmd/dns/`) - Broaden record coverage and diagnostics
-- **MTU Tooling** (`cmd/mtu/`) - Reliability, portability, and output polish
-- **Output Formats** - CSV, XML support
-- **Tests** - Always appreciated!
+- Keep the CLI surface tight.
+- Do not add placeholder commands or speculative features.
+- Prefer depth and correctness over breadth.
 
-## 📁 Project Structure
+### Code
 
-```
-cidrator/
-├── cmd/                 # CLI commands (add new features here)
-│   ├── cidr/           # CIDR analysis
-│   ├── dns/            # DNS tools
-│   └── mtu/            # MTU discovery and monitoring
-├── internal/           # Core logic
-│   ├── cidr/          # CIDR calculations
-│   ├── dns/           # DNS implementation
-│   └── validation/    # Input validation
-└── scripts/           # Development scripts
-```
+- Follow normal Go formatting and naming conventions.
+- Keep command handlers thin where possible.
+- Prefer explicit errors over implicit fallback behavior.
+- Avoid dead abstractions and scaffolding that does not serve a real path.
 
-**Keep it simple:**
-- `cmd/` = CLI interface (thin layer)
-- `internal/` = Business logic
-- Add tests for new features
-- Follow Go conventions
+### Output
 
-## ✅ Before Submitting
+- `stdout` is for command results.
+- `stderr` is for diagnostics and warnings.
+- JSON output must remain machine-readable. Do not mix status text into `--json` output paths.
 
-1. **Run checks:** `make check`
-2. **Test manually:** `make run ARGS="your command"`
-3. **Write tests** for new features
-4. **Use conventional commits**
+### Documentation
 
-## 🆘 Need Help?
+- Match the actual behavior of the repository.
+- Prefer short, factual explanations over marketing language.
+- Document operational caveats, especially for networking and platform-specific behavior.
 
-- 🗣️ **Questions:** [GitHub Discussions](https://github.com/euan-cowie/cidrator/discussions)
-- 🐛 **Issues:** [GitHub Issues](https://github.com/euan-cowie/cidrator/issues)
-- 💬 **Chat:** Comment on any issue/PR
+## Testing
 
-## 🎨 Code Style
+Run the appropriate level of testing for the change.
 
-- **Follow `go fmt`** (automatic with `make fmt`)
-- **Add tests** for new functionality
-- **Clear error messages** for users
-- **Keep functions small** and focused
-
-## 🚀 Advanced Setup (Optional)
+### Fast local checks
 
 ```bash
-# Install optional development tools
-make install-tools      # golangci-lint
-make install-precommit  # pre-commit hooks
-
-# Build for all platforms
-make build-all
-
-# Run examples
-make examples
+make test-quick
+make dev
 ```
 
-## ❤️ Recognition
-
-All contributors are listed in our contributors page and mentioned in release notes.
-
----
-
-**Ready to contribute?**
+### Full local checks
 
 ```bash
-make setup && make dev
+make check
+make test-integration
 ```
 
-Happy coding! 🚀
+### MTU-specific Linux labs
+
+These are required when you change MTU discovery logic, peer behavior, or related JSON/output contracts.
+
+```bash
+make test-lab
+make test-lab-hops
+make test-lab-plpmtud
+```
+
+Requirements for the MTU lab targets:
+
+- Linux
+- `iproute2`
+- `ping`
+- `iptables` for the PLPMTUD black-hole lab
+- passwordless `sudo`
+
+## Pull requests
+
+A good pull request should:
+
+- explain the problem and the chosen approach
+- call out user-visible behavior changes
+- mention platform-specific limitations or assumptions
+- include or update tests
+- include documentation updates when needed
+
+If the change affects MTU behavior, note which of these were run:
+
+- `go test ./cmd/mtu`
+- `go test ./...`
+- namespace lab targets on Linux
+
+## Commit messages
+
+Conventional commits are preferred:
+
+```bash
+feat: add hop-by-hop MTU lab coverage
+fix: preserve JSON-only output for mtu watch
+docs: rewrite development guide
+```
+
+Common prefixes:
+
+- `feat`
+- `fix`
+- `docs`
+- `test`
+- `refactor`
+- `chore`
+
+## Getting help
+
+- Issues: <https://github.com/euan-cowie/cidrator/issues>
+- Discussions: <https://github.com/euan-cowie/cidrator/discussions>
+
+If you are unsure whether a change fits the project, ask before investing in a large branch.
