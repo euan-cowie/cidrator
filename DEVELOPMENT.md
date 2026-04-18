@@ -4,7 +4,7 @@ This document is a working reference for local development on `cidrator`.
 
 ## Requirements
 
-- Go toolchain `1.24.5`
+- Go `1.24` with toolchain `1.24.5`
 - `make`
 - `git`
 
@@ -22,7 +22,13 @@ For Linux MTU labs:
 make setup
 ```
 
-`make setup` is the preferred bootstrap path. It prepares dependencies, builds the project, runs a quick test pass, and offers to install optional development tools.
+`make setup` downloads modules, builds the project, and runs a quick test pass.
+
+If you also want optional local tooling:
+
+```bash
+make setup-tools
+```
 
 ## Common commands
 
@@ -134,18 +140,18 @@ Relevant lab scripts:
 
 ### `golangci-lint` is not in `PATH`
 
-`make setup` attempts to install it, but your shell may need to be reloaded.
+Install it explicitly:
+
+```bash
+make install-tools
+```
+
+If the binary still is not visible, make sure `$(go env GOPATH)/bin` is on your `PATH`.
 
 Typical fix:
 
 ```bash
 source ~/.zshrc
-```
-
-If needed, install tools manually:
-
-```bash
-make install-tools
 ```
 
 ### Tests fail after dependency or toolchain changes

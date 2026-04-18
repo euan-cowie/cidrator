@@ -14,7 +14,7 @@ Cidrator is deliberately narrow in scope. Good contributions usually improve cor
 
 Recommended local requirements:
 
-- Go toolchain `1.24.5`
+- Go `1.24` with toolchain `1.24.5`
 - `make`
 - `git`
 
@@ -33,7 +33,13 @@ cd cidrator
 make setup
 ```
 
-`make setup` builds the project, downloads dependencies, runs a quick test pass, and offers to install optional development tools.
+`make setup` downloads modules, builds the project, and runs a quick test pass.
+
+Optional local tooling can be installed separately:
+
+```bash
+make install-tools
+```
 
 If you prefer a manual setup:
 

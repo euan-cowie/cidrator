@@ -8,14 +8,8 @@ import (
 var DNSCmd = &cobra.Command{
 	Use:   "dns",
 	Short: "DNS analysis and lookup tools",
-	Long: `DNS subcommand provides DNS analysis and lookup tools.
+	Long: `Forward and reverse DNS lookup tools.
 
-Available commands:
-  lookup  - Perform DNS lookups (A, AAAA, MX, TXT, CNAME, NS)
-  reverse - Reverse DNS lookups (PTR records) for IP addresses
-
-Examples:
-  cidrator dns lookup example.com
-  cidrator dns lookup example.com --type MX --format json
-  cidrator dns reverse 8.8.8.8`,
+Use this command group to query common record types, direct queries to a
+specific resolver, and inspect PTR records for IPv4 or IPv6 addresses.`,
 }

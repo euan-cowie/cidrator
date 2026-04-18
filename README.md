@@ -142,11 +142,12 @@ The project treats structured output as part of the command contract. Changes to
 
 ## Development
 
-The repository uses Go toolchain `1.24.5` via the `toolchain` directive in `go.mod`.
+The repository targets Go `1.24` and pins toolchain `1.24.5` in `go.mod`.
 
 Common commands:
 
 ```bash
+make setup
 make build
 make test
 make check
