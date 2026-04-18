@@ -60,16 +60,18 @@ run_discovery() {
 		--hops \
 		--max "$MAX_PROBE_SIZE" \
 		--max-hops "$MAX_HOPS" \
+		--pps 2 \
 		--json \
 		--quiet >"$HOPS_RESULT"
 
-	python3 - "$HOPS_RESULT" "$PEER_ADDR" "$MAX_PROBE_SIZE" "$EXPECTED_PMTU" "$ROUTER_CLIENT_ADDR" <<'PY'
+	python3 - "$HOPS_RESULT" "$PEER_ADDR" "$MAX_PROBE_SIZE" "$EXPECTED_PMTU" "$ROUTER_CLIENT_ADDR" "$CLIENT_LINK_MTU" <<'PY'
 import json
 import sys
 
-path, expected_target, expected_max_probe_size, expected_pmtu, expected_router = sys.argv[1:]
+path, expected_target, expected_max_probe_size, expected_pmtu, expected_router, expected_first_hop_mtu = sys.argv[1:]
 expected_max_probe_size = int(expected_max_probe_size)
 expected_pmtu = int(expected_pmtu)
+expected_first_hop_mtu = int(expected_first_hop_mtu)
 
 with open(path, "r", encoding="utf-8") as handle:
     data = json.load(handle)
@@ -93,8 +95,8 @@ else:
         errors.append(f'first hop index={first.get("hop")} expected 1')
     if first.get("addr") != expected_router:
         errors.append(f'first hop addr={first.get("addr")} expected {expected_router}')
-    if first.get("mtu") != 1500:
-        errors.append(f'first hop mtu={first.get("mtu")} expected 1500')
+    if first.get("mtu") != expected_first_hop_mtu:
+        errors.append(f'first hop mtu={first.get("mtu")} expected {expected_first_hop_mtu}')
     if not isinstance(first.get("rtt"), (int, float)) or first.get("rtt") < 0:
         errors.append(f'first hop rtt={first.get("rtt")} expected non-negative number')
 
@@ -124,6 +126,7 @@ require_command sudo
 require_command ip
 require_command ping
 require_command python3
+require_command sysctl
 
 if ! sudo -n true >/dev/null 2>&1; then
 	echo "this lab requires passwordless sudo" >&2
@@ -170,6 +173,9 @@ sudo ip -n "$ROUTER_NS" link set "$ROUTER_PEER_IF" mtu "$EXPECTED_PMTU" up
 sudo ip -n "$CLIENT_NS" route add "$PEER_ADDR/32" via "$ROUTER_CLIENT_ADDR"
 sudo ip -n "$PEER_NS" route add "$CLIENT_ADDR/32" via "$ROUTER_PEER_ADDR"
 sudo ip netns exec "$ROUTER_NS" sysctl -w net.ipv4.ip_forward=1 >/dev/null
+# Hop-by-hop ICMP probing is response-heavy; disable router-side ICMP throttling
+# so exact-boundary probes are not misclassified as timeouts in CI.
+sudo ip netns exec "$ROUTER_NS" sysctl -w net.ipv4.icmp_ratelimit=0 >/dev/null
 
 echo "Checking baseline connectivity..."
 sudo ip netns exec "$CLIENT_NS" ping -c 1 -W 1 "$PEER_ADDR" >/dev/null
