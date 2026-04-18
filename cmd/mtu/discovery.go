@@ -262,17 +262,11 @@ func (d *MTUDiscoverer) DiscoverPMTULinear(ctx context.Context, minMTU, maxMTU, 
 
 	elapsed := time.Since(start)
 
-	// Calculate MSS based on IP version
-	mss := lastWorking - 40 // IPv4 headers (20) + TCP headers (20)
-	if d.ipv6 {
-		mss = lastWorking - 60 // IPv6 headers (40) + TCP headers (20)
-	}
-
 	return &MTUResult{
 		Target:    d.target,
 		Protocol:  d.protocol,
 		PMTU:      lastWorking,
-		MSS:       mss,
+		MSS:       tcpMSSForMTU(lastWorking, d.ipv6),
 		Hops:      probeCount,
 		ElapsedMS: int(elapsed.Milliseconds()),
 	}, nil
@@ -428,17 +422,11 @@ func (d *MTUDiscoverer) discoverICMP(ctx context.Context, minMTU, maxMTU int) (*
 
 	elapsed := time.Since(start)
 
-	// Calculate MSS based on IP version
-	mss := lastWorking - 40 // IPv4 headers (20) + TCP headers (20)
-	if d.ipv6 {
-		mss = lastWorking - 60 // IPv6 headers (40) + TCP headers (20)
-	}
-
 	return &MTUResult{
 		Target:    d.target,
 		Protocol:  d.protocol,
 		PMTU:      lastWorking,
-		MSS:       mss,
+		MSS:       tcpMSSForMTU(lastWorking, d.ipv6),
 		Hops:      hops,
 		ElapsedMS: int(elapsed.Milliseconds()),
 	}, nil

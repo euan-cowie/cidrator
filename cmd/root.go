@@ -6,9 +6,7 @@ import (
 
 	"github.com/euan-cowie/cidrator/cmd/cidr"
 	"github.com/euan-cowie/cidrator/cmd/dns"
-	"github.com/euan-cowie/cidrator/cmd/fw"
 	"github.com/euan-cowie/cidrator/cmd/mtu"
-	"github.com/euan-cowie/cidrator/cmd/scan"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -18,15 +16,13 @@ var cfgFile string
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "cidrator",
-	Short: "Comprehensive network analysis and manipulation toolkit",
-	Long: `Cidrator is a comprehensive CLI toolkit for network analysis and manipulation.
+	Short: "Network diagnostics for CIDR, DNS, and Path MTU",
+	Long: `Cidrator is a CLI toolkit for practical network diagnostics.
 
 Available command groups:
 - cidr: IPv4/IPv6 CIDR network analysis (explain, expand, contains, count, overlaps, divide)
 - mtu: Path-MTU discovery & MTU toolbox (discover, watch, interfaces, suggest)
-- dns: DNS analysis and lookup tools (coming soon)
-- scan: Network scanning and discovery (coming soon)
-- fw: Firewall rule generation and analysis (coming soon)
+- dns: DNS lookups and reverse-DNS queries
 
 Each command group provides specialized tools for different aspects of network operations.
 Use 'cidrator <command> --help' for detailed information about each command group.`,
@@ -48,8 +44,6 @@ func init() {
 	rootCmd.AddCommand(cidr.CidrCmd)
 	rootCmd.AddCommand(mtu.MTUCmd)
 	rootCmd.AddCommand(dns.DNSCmd)
-	rootCmd.AddCommand(scan.ScanCmd)
-	rootCmd.AddCommand(fw.FwCmd)
 
 	// Here you will define your flags and configuration settings.
 	// Cobra supports persistent flags, which, if defined here,

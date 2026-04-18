@@ -43,7 +43,7 @@ func init() {
 	MTUCmd.PersistentFlags().Duration("timeout", 0, "Wait per probe (default: 2s)")
 	MTUCmd.PersistentFlags().Int("ttl", 64, "Initial hop limit")
 	MTUCmd.PersistentFlags().Bool("json", false, "Structured output")
-	MTUCmd.PersistentFlags().Bool("quiet", false, "Suppress progress bar")
+	MTUCmd.PersistentFlags().Bool("quiet", false, "Suppress informational output")
 	MTUCmd.PersistentFlags().Int("pps", 10, "Rate limit probes per second")
 	MTUCmd.PersistentFlags().Bool("hops", false, "Enable hop-by-hop MTU discovery (similar to tracepath)")
 	MTUCmd.PersistentFlags().Int("max-hops", 30, "Maximum hops for hop-by-hop discovery")

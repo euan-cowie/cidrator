@@ -8,9 +8,9 @@
 [![Coverage](https://codecov.io/gh/euan-cowie/cidrator/branch/main/graph/badge.svg)](https://codecov.io/gh/euan-cowie/cidrator)
 [![Go Report Card](https://goreportcard.com/badge/github.com/euan-cowie/cidrator)](https://goreportcard.com/report/github.com/euan-cowie/cidrator)
 
-> **Comprehensive network analysis and manipulation toolkit built with Go**
+> **Practical network diagnostics built in Go**
 
-Cidrator is a modern, fast, and feature-rich CLI tool for IPv4/IPv6 CIDR network analysis, DNS operations, network scanning, and firewall management. Designed with a clean `kubectl`-style interface and built for both interactive use and automation.
+Cidrator is a CLI for three concrete jobs: CIDR analysis, DNS lookups, and Path-MTU discovery. It is designed for interactive troubleshooting and shell-friendly automation, with structured output where it helps.
 
 ## ✨ Features
 
@@ -32,10 +32,10 @@ Cidrator is a modern, fast, and feature-rich CLI tool for IPv4/IPv6 CIDR network
 - **🔒 Security Features** - Rate limiting, packet randomization, and retry throttling
 - **🌐 Full Dual-Stack** - Complete IPv4 and IPv6 support across all probe methods
 
-### 🚀 **Planned Features** (Coming Soon)
-- **🔍 DNS Tools** - DNS lookups, reverse DNS, zone analysis, performance testing
-- **🔎 Network Scanning** - Port scanning, ping sweeps, host discovery, service detection
-- **🛡️ Firewall Management** - Rule generation, analysis, optimization, format conversion
+### 🔎 **DNS Lookups**
+- **A/AAAA/MX/TXT/CNAME/NS queries** - Forward lookups with table, JSON, or YAML output
+- **Reverse DNS** - PTR lookups for IPv4 and IPv6 addresses
+- **Custom resolvers** - Query a specific DNS server when debugging
 
 ## 🚀 Installation
 
@@ -57,6 +57,7 @@ brew install euan-cowie/tap/cidrator
 
 # Arch Linux (AUR)
 yay -S cidrator-bin
+```
 
 ### **From Source**
 
@@ -82,6 +83,9 @@ cidrator cidr explain 10.0.0.0/16 --format json
 # Check if IP is in range
 cidrator cidr contains 192.168.1.0/24 192.168.1.100
 
+# Query DNS records
+cidrator dns lookup example.com --type MX
+
 # Discover Path-MTU to a destination
 cidrator mtu discover google.com
 
@@ -92,7 +96,7 @@ cidrator mtu watch example.com --interval 30s
 cidrator mtu interfaces
 
 # Get protocol-specific recommendations
-cidrator mtu suggest 8.8.8.8 --json
+cidrator mtu suggest 8.8.8.8 --proto tcp --json
 ```
 
 ## 📚 Documentation
@@ -108,9 +112,7 @@ cidrator <command-group> <command> [arguments] [flags]
 **Available Command Groups:**
 - `cidr` - IPv4/IPv6 CIDR network analysis and manipulation
 - `mtu` - Path-MTU discovery and MTU analysis toolkit
-- `dns` - DNS analysis and lookup tools *(coming soon)*
-- `scan` - Network scanning and discovery *(coming soon)*
-- `fw` - Firewall rule generation and analysis *(coming soon)*
+- `dns` - DNS analysis and lookup tools
 
 ### **MTU Commands**
 
@@ -182,7 +184,7 @@ $ cidrator mtu watch 8.8.8.8 --interval 10s --json
 {"timestamp":"2023-12-01T15:30:25Z","target":"8.8.8.8","pmtu":1500,"mss":1460,"changed":false,"mss_changed":false}
 
 # Alert only on MSS changes
-$ cidrator mtu watch corporate-vpn.example.com --mss-only --syslog
+$ cidrator mtu watch corporate-vpn.example.com --mss-only
 ```
 
 #### **🖥️ Interface MTU Analysis**
@@ -217,7 +219,7 @@ Get optimal frame sizes for various protocols based on discovered Path-MTU:
 
 ```bash
 # Protocol recommendations
-$ cidrator mtu suggest example.com
+$ cidrator mtu suggest example.com --proto tcp
 Suggestions for example.com (PMTU: 1500):
 
 TCP MSS (IPv4):      1460
@@ -226,7 +228,7 @@ WireGuard payload:   1440
 IPSec ESP+UDP:       1416
 
 # JSON output for configuration management
-$ cidrator mtu suggest vpn-server.corp.com --json
+$ cidrator mtu suggest vpn-server.corp.com --proto tcp --json
 {
   "target": "vpn-server.corp.com",
   "pmtu": 1472,
@@ -384,7 +386,6 @@ Error: cannot divide 192.168.1.0/30 into 8 parts: insufficient host bits
 - **MTU black hole detection** - Identify network changes affecting connectivity
 - **Performance audits** - Ensure optimal network performance settings
 - **Penetration testing** - Network reconnaissance and path analysis
-- **Firewall rules** - Generate and validate IP ranges for rules *(coming soon)*
 - **Security monitoring** - Track network configuration changes
 
 ## 🔧 Advanced Usage
@@ -448,29 +449,27 @@ cidrator/
 │   │   ├── mtu.go         # MTU parent command
 │   │   ├── discover.go    # MTU discovery command interface
 │   │   ├── discovery.go   # Core MTU discovery algorithms
+│   │   ├── discovery_options.go # Shared option parsing and execution
 │   │   ├── watch.go       # Continuous monitoring
 │   │   ├── interfaces.go  # Interface enumeration
 │   │   ├── suggest.go     # Protocol recommendations
 │   │   ├── interface_detector.go # Cross-platform interface detection
 │   │   ├── tcp_udp_probes.go     # TCP/UDP probe implementations
 │   │   ├── plpmtud.go     # RFC 4821 PLPMTUD fallback
+│   │   ├── packet_sizes.go # Shared MTU arithmetic helpers
 │   │   └── security.go    # Rate limiting & packet randomization
-│   ├── dns/               # DNS command group (scaffold)
-│   ├── scan/              # Scanning command group (scaffold)
-│   └── fw/                # Firewall command group (scaffold)
+│   └── dns/               # DNS command group
 ├── internal/
 │   ├── cidr/              # Core CIDR functionality
 │   │   ├── cidr.go        # Network calculations & data structures
-│   │   ├── errors.go      # Typed error handling
-│   │   └── formatter.go   # Output formatting interfaces
+│   │   └── errors.go      # Typed error handling
+│   ├── dns/               # DNS lookup implementation
 │   └── validation/        # Input validation layer
 │       └── network.go     # Centralized network input validation
-├── .github/               # GitHub workflows and issue templates
-│   ├── workflows/         # CI/CD pipelines
-│   └── ISSUE_TEMPLATE/    # Issue templates
+├── completions/           # Shell completions
 ├── docs/                  # Additional documentation
-├── examples/              # Usage examples and scripts
-└── scripts/               # Build and development scripts
+├── scripts/               # Build and development scripts
+└── .github/               # GitHub workflows and issue templates
 ```
 
 ### **Design Principles**
@@ -515,39 +514,13 @@ cidrator/
 | **Security Features** | ✅ Rate limiting | ❌ Basic | ❌ No | ❌ No |
 | **Cross-platform** | ✅ All platforms | ✅ Universal | ⚠️ Linux/BSD | ✅ All platforms |
 
-## 🛣️ Roadmap
+## 📌 Current Scope
 
-### **Phase 1: Core CIDR** ✅ *Complete*
-- ✅ IPv4/IPv6 CIDR analysis
-- ✅ Multiple output formats
-- ✅ Safety limits and validation
-- ✅ Comprehensive test coverage
+- CIDR analysis and manipulation for IPv4 and IPv6
+- Path-MTU discovery, monitoring, and frame-size recommendations
+- DNS forward and reverse lookups
 
-### **Phase 2: Path-MTU Discovery** ✅ *Complete*
-- ✅ Multi-protocol MTU discovery (ICMP, TCP, UDP)
-- ✅ Continuous monitoring with change detection
-- ✅ Cross-platform interface enumeration
-- ✅ Protocol-specific frame size recommendations
-- ✅ PLPMTUD fallback for ICMP-filtered networks
-- ✅ Security features and rate limiting
-
-### **Phase 3: DNS Tools** 🚧 *In Progress*
-- 🔄 DNS record lookups (A, AAAA, MX, TXT, etc.)
-- 🔄 Reverse DNS lookups
-- 🔄 DNS server performance testing
-- 🔄 Zone file analysis
-
-### **Phase 4: Network Scanning** 📅 *Planned*
-- 📅 Port scanning with multiple techniques
-- 📅 Host discovery and ping sweeps
-- 📅 Service detection and OS fingerprinting
-- 📅 Network topology mapping
-
-### **Phase 5: Firewall Management** 📅 *Future*
-- 📅 Multi-format rule generation (iptables, pf, cisco)
-- 📅 Configuration analysis and optimization
-- 📅 Security policy validation
-- 📅 Rule conflict detection
+The public CLI intentionally exposes only the command groups that are implemented and tested.
 
 ## 🤝 Contributing
 

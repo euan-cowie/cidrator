@@ -110,9 +110,8 @@ make run ARGS="cidr explain 192.168.1.0/24"
 **Good first issues:** Look for the [`good first issue`](https://github.com/euan-cowie/cidrator/labels/good%20first%20issue) label
 
 **High-impact areas:**
-- **DNS Tools** (`cmd/dns/`) - DNS lookup features
-- **Network Scanning** (`cmd/scan/`) - Port scanning
-- **Firewall Tools** (`cmd/fw/`) - Rule generation
+- **DNS Tools** (`cmd/dns/`) - Broaden record coverage and diagnostics
+- **MTU Tooling** (`cmd/mtu/`) - Reliability, portability, and output polish
 - **Output Formats** - CSV, XML support
 - **Tests** - Always appreciated!
 
@@ -122,11 +121,11 @@ make run ARGS="cidr explain 192.168.1.0/24"
 cidrator/
 ├── cmd/                 # CLI commands (add new features here)
 │   ├── cidr/           # CIDR analysis
-│   ├── dns/            # DNS tools (needs implementation)
-│   ├── scan/           # Network scanning (needs implementation)
-│   └── fw/             # Firewall tools (needs implementation)
+│   ├── dns/            # DNS tools
+│   └── mtu/            # MTU discovery and monitoring
 ├── internal/           # Core logic
 │   ├── cidr/          # CIDR calculations
+│   ├── dns/           # DNS implementation
 │   └── validation/    # Input validation
 └── scripts/           # Development scripts
 ```

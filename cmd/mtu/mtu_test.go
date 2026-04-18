@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"strings"
@@ -51,11 +52,11 @@ All commands support both IPv4 and IPv6 with multiple probe protocols.`,
 	cmd.PersistentFlags().String("proto", "icmp", "Probe method (icmp|udp|tcp)")
 	cmd.PersistentFlags().Int("min", 0, "Lower bound (IPv4 default: 576, IPv6: 1280)")
 	cmd.PersistentFlags().Int("max", 9216, "Upper bound")
-	cmd.PersistentFlags().Int("step", 16, "Granularity for linear sweep mode")
+	cmd.PersistentFlags().Int("step", 0, "Granularity for linear sweep mode (0 = binary search)")
 	cmd.PersistentFlags().Duration("timeout", 0, "Wait per probe (default: 2s)")
 	cmd.PersistentFlags().Int("ttl", 64, "Initial hop limit")
 	cmd.PersistentFlags().Bool("json", false, "Structured output")
-	cmd.PersistentFlags().Bool("quiet", false, "Suppress progress bar")
+	cmd.PersistentFlags().Bool("quiet", false, "Suppress informational output")
 	cmd.PersistentFlags().Int("pps", 10, "Rate limit probes per second")
 
 	return cmd
@@ -273,13 +274,13 @@ func TestSuggestCommand(t *testing.T) {
 		},
 		{
 			name:           "localhost suggestion",
-			args:           []string{"localhost"},
+			args:           []string{"localhost", "--proto", "tcp"},
 			expectError:    false,
 			expectedSubstr: "TCP MSS",
 		},
 		{
 			name:           "localhost json",
-			args:           []string{"localhost", "--json"},
+			args:           []string{"localhost", "--proto", "tcp", "--json"},
 			expectError:    false,
 			expectedSubstr: "", // Skip this test case - covered by TestSuggestJSONOutput
 		},
@@ -305,7 +306,7 @@ func TestSuggestJSONOutput(t *testing.T) {
 		}
 	}
 
-	cmd := exec.Command(binary, "mtu", "suggest", "localhost", "--json")
+	cmd := exec.Command(binary, "mtu", "suggest", "localhost", "--proto", "tcp", "--json")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("suggest command failed: %v, output: %s", err, string(output))
@@ -444,6 +445,122 @@ func TestOutputJSON(t *testing.T) {
 
 	if parsed.Target != result.Target {
 		t.Errorf("JSON target mismatch: got %q, want %q", parsed.Target, result.Target)
+	}
+}
+
+func TestOutputHopJSONUsesMilliseconds(t *testing.T) {
+	result := &HopMTUResult{
+		Target:       "test.example.com",
+		Protocol:     "icmp",
+		MaxProbeSize: 1500,
+		FinalPMTU:    1480,
+		ElapsedMS:    250,
+		Hops: []*HopInfo{
+			{
+				Hop:  1,
+				Addr: net.ParseIP("192.0.2.1"),
+				MTU:  1500,
+				RTT:  50 * time.Millisecond,
+			},
+			{
+				Hop:     2,
+				RTT:     2 * time.Second,
+				Timeout: true,
+			},
+		},
+	}
+
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := outputHopJSON(result)
+
+	_ = w.Close()
+	os.Stdout = oldStdout
+
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(r)
+	output := strings.TrimSpace(buf.String())
+
+	if err != nil {
+		t.Fatalf("outputHopJSON failed: %v", err)
+	}
+
+	var parsed struct {
+		Hops []struct {
+			Addr    string  `json:"addr"`
+			RTT     float64 `json:"rtt"`
+			Timeout bool    `json:"timeout"`
+		} `json:"hops"`
+	}
+
+	if err := json.Unmarshal([]byte(output), &parsed); err != nil {
+		t.Fatalf("outputHopJSON produced invalid JSON: %v\nOutput: %s", err, output)
+	}
+
+	if len(parsed.Hops) != 2 {
+		t.Fatalf("expected 2 hops, got %d", len(parsed.Hops))
+	}
+
+	if parsed.Hops[0].Addr != "192.0.2.1" {
+		t.Errorf("unexpected hop address: got %q", parsed.Hops[0].Addr)
+	}
+
+	if parsed.Hops[0].RTT != 50 {
+		t.Errorf("expected first hop RTT in milliseconds, got %v", parsed.Hops[0].RTT)
+	}
+
+	if parsed.Hops[1].RTT != 2000 {
+		t.Errorf("expected timeout hop RTT in milliseconds, got %v", parsed.Hops[1].RTT)
+	}
+}
+
+func TestDiscoveryTimeoutBudgetRespectsPerProbeTimeout(t *testing.T) {
+	defaultBudget := discoveryTimeoutBudget(discoveryOptions{
+		MinMTU:  576,
+		MaxMTU:  9216,
+		Timeout: 2 * time.Second,
+	})
+	if defaultBudget != 60*time.Second {
+		t.Fatalf("expected default binary-search budget to retain the 60s floor, got %v", defaultBudget)
+	}
+
+	scaledBudget := discoveryTimeoutBudget(discoveryOptions{
+		MinMTU:  576,
+		MaxMTU:  9216,
+		Timeout: 5 * time.Second,
+	})
+	if scaledBudget != 75*time.Second {
+		t.Fatalf("expected scaled budget to account for longer probe timeouts, got %v", scaledBudget)
+	}
+}
+
+func TestNewWatchDropErrorSilencesCobraErrorsForJSON(t *testing.T) {
+	root := &cobra.Command{Use: "cidrator"}
+	watch := &cobra.Command{
+		Use: "watch",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return newWatchDropError(cmd, 1500, 1400, true)
+		},
+	}
+	root.AddCommand(watch)
+	root.SetArgs([]string{"watch"})
+
+	var stderr bytes.Buffer
+	root.SetErr(&stderr)
+
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("expected watch drop error")
+	}
+
+	if !strings.Contains(err.Error(), "pmtu dropped from 1500 to 1400") {
+		t.Fatalf("unexpected error text: %v", err)
+	}
+
+	if stderr.Len() != 0 {
+		t.Fatalf("expected Cobra stderr to stay empty for JSON mode, got %q", stderr.String())
 	}
 }
 

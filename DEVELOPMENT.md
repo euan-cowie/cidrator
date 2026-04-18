@@ -96,12 +96,12 @@ make run ARGS="--help"
 ```
 cmd/           # CLI commands (add new commands here)
 ├── cidr/      # CIDR analysis ✅ (complete)
-├── dns/       # DNS tools 🚧 (needs implementation)
-├── scan/      # Network scanning 🚧 (needs implementation)
-└── fw/        # Firewall tools 🚧 (needs implementation)
+├── dns/       # DNS lookups and reverse lookups
+└── mtu/       # Path-MTU discovery and monitoring
 
 internal/      # Core business logic
 ├── cidr/      # CIDR calculations
+├── dns/       # DNS implementation
 └── validation/ # Input validation
 
 scripts/       # Development scripts

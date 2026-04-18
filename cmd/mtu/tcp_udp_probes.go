@@ -93,14 +93,8 @@ func NewUDPProber(target string, ipv6 bool, port int, timeout time.Duration) (*U
 func (p *TCPProber) ProbeTCP(ctx context.Context, size int) *ProbeResult {
 	start := time.Now()
 
-	// Calculate target MSS to bypass TSO/GSO
-	// MSS = ProbeSize - IPHeader - TCPHeader
-	ipHeader := 20
-	if p.ipv6 {
-		ipHeader = 40
-	}
-	tcpHeader := 20
-	targetMSS := size - ipHeader - tcpHeader
+	// Calculate target MSS to bypass TSO/GSO.
+	targetMSS := payloadSizeForPacket(size, tcpPacketOverhead(p.ipv6))
 
 	// Safety check for minimum TCP MSS
 	if targetMSS < 1 {
@@ -172,15 +166,7 @@ func (p *TCPProber) ProbeTCP(ctx context.Context, size int) *ProbeResult {
 		}
 	}
 
-	// Calculate payload size accounting for IP + TCP headers
-	headerSize := 40 // IPv4 (20) + TCP (20)
-	if p.ipv6 {
-		headerSize = 60 // IPv6 (40) + TCP (20)
-	}
-	payloadSize := size - headerSize
-	if payloadSize < 0 {
-		payloadSize = 0
-	}
+	payloadSize := payloadSizeForPacket(size, tcpPacketOverhead(p.ipv6))
 
 	// Send payload data to actually test the path MTU
 	payload := make([]byte, payloadSize)
@@ -258,8 +244,8 @@ func (p *UDPProber) ProbeUDP(ctx context.Context, size int) *ProbeResult {
 		}
 	}
 
-	// Create payload of specified size
-	payload := make([]byte, size)
+	// Probe size refers to the full packet size on the wire, not just UDP payload.
+	payload := make([]byte, payloadSizeForPacket(size, udpPacketOverhead(p.ipv6)))
 	for i := range payload {
 		payload[i] = byte(i % 256)
 	}
@@ -338,7 +324,7 @@ func (p *TCPProber) DiscoverPMTUTCP(ctx context.Context, minMTU, maxMTU int) (*M
 		Target:    p.target,
 		Protocol:  "tcp",
 		PMTU:      lastWorking,
-		MSS:       lastWorking - 40, // TCP/IP headers
+		MSS:       tcpMSSForMTU(lastWorking, p.ipv6),
 		Hops:      hops,
 		ElapsedMS: int(elapsed.Milliseconds()),
 	}, nil
@@ -384,7 +370,7 @@ func (p *UDPProber) DiscoverPMTUUDP(ctx context.Context, minMTU, maxMTU int) (*M
 		Target:    p.target,
 		Protocol:  "udp",
 		PMTU:      lastWorking,
-		MSS:       lastWorking - 28, // UDP/IP headers
+		MSS:       tcpMSSForMTU(lastWorking, p.ipv6),
 		Hops:      hops,
 		ElapsedMS: int(elapsed.Milliseconds()),
 	}, nil

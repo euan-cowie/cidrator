@@ -68,17 +68,11 @@ func (p *PLPMTUDProber) DiscoverPMTUWithPLPMTUD(ctx context.Context, minMTU, max
 
 	elapsed := time.Since(start)
 
-	// Calculate MSS
-	mss := confirmedMTU - 40 // Default to IPv4
-	if p.ipv6 {
-		mss = confirmedMTU - 60
-	}
-
 	return &MTUResult{
 		Target:    p.target,
 		Protocol:  "plpmtud",
 		PMTU:      confirmedMTU,
-		MSS:       mss,
+		MSS:       tcpMSSForMTU(confirmedMTU, p.ipv6),
 		Hops:      0, // Not applicable for PLPMTUD
 		ElapsedMS: int(elapsed.Milliseconds()),
 	}, nil
