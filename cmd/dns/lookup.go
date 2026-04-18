@@ -2,7 +2,7 @@ package dns
 
 import (
 	"fmt"
-	"os"
+	"io"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -10,6 +10,8 @@ import (
 	"github.com/euan-cowie/cidrator/internal/dns"
 	"github.com/spf13/cobra"
 )
+
+var dnsLookup = dns.Lookup
 
 // lookupCmd represents the dns lookup command
 var lookupCmd = &cobra.Command{
@@ -56,52 +58,52 @@ func runLookup(cmd *cobra.Command, args []string) error {
 	}
 
 	// Perform lookup
-	result, err := dns.Lookup(domain, opts)
+	result, err := dnsLookup(domain, opts)
 	if err != nil {
 		return err
 	}
 
 	// Output result
-	return outputLookupResult(result, format)
+	return outputLookupResult(cmd.OutOrStdout(), result, format)
 }
 
-func outputLookupResult(result *dns.DNSResult, format string) error {
+func outputLookupResult(w io.Writer, result *dns.DNSResult, format string) error {
 	switch format {
 	case "json":
 		output, err := result.ToJSON()
 		if err != nil {
 			return fmt.Errorf("failed to generate JSON: %v", err)
 		}
-		fmt.Println(output)
+		_, _ = fmt.Fprintln(w, output)
 	case "yaml":
 		output, err := result.ToYAML()
 		if err != nil {
 			return fmt.Errorf("failed to generate YAML: %v", err)
 		}
-		fmt.Print(output)
+		_, _ = fmt.Fprint(w, output)
 	case "table":
-		outputLookupTable(result)
+		outputLookupTable(w, result)
 	default:
 		return fmt.Errorf("unsupported output format: %s", format)
 	}
 	return nil
 }
 
-func outputLookupTable(result *dns.DNSResult) {
-	fmt.Printf("Domain: %s\n", result.Domain)
-	fmt.Printf("Query Type: %s\n", result.QueryType)
+func outputLookupTable(w io.Writer, result *dns.DNSResult) {
+	_, _ = fmt.Fprintf(w, "Domain: %s\n", result.Domain)
+	_, _ = fmt.Fprintf(w, "Query Type: %s\n", result.QueryType)
 	if result.Server != "" {
-		fmt.Printf("Server: %s\n", result.Server)
+		_, _ = fmt.Fprintf(w, "Server: %s\n", result.Server)
 	}
-	fmt.Printf("Query Time: %v\n\n", result.QueryTime.Round(time.Millisecond))
+	_, _ = fmt.Fprintf(w, "Query Time: %v\n\n", result.QueryTime.Round(time.Millisecond))
 
 	if len(result.Records) == 0 {
-		fmt.Println("No records found.")
+		_, _ = fmt.Fprintln(w, "No records found.")
 		return
 	}
 
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	defer func() { _ = w.Flush() }()
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	defer func() { _ = tw.Flush() }()
 
 	// Check if any MX records exist (to show priority column)
 	hasMX := false
@@ -113,20 +115,20 @@ func outputLookupTable(result *dns.DNSResult) {
 	}
 
 	if hasMX {
-		_, _ = fmt.Fprintf(w, "TYPE\tPRIORITY\tVALUE\n")
-		_, _ = fmt.Fprintf(w, "----\t--------\t-----\n")
+		_, _ = fmt.Fprintf(tw, "TYPE\tPRIORITY\tVALUE\n")
+		_, _ = fmt.Fprintf(tw, "----\t--------\t-----\n")
 		for _, r := range result.Records {
 			if r.Type == "MX" {
-				_, _ = fmt.Fprintf(w, "%s\t%d\t%s\n", r.Type, r.Priority, r.Value)
+				_, _ = fmt.Fprintf(tw, "%s\t%d\t%s\n", r.Type, r.Priority, r.Value)
 			} else {
-				_, _ = fmt.Fprintf(w, "%s\t\t%s\n", r.Type, r.Value)
+				_, _ = fmt.Fprintf(tw, "%s\t\t%s\n", r.Type, r.Value)
 			}
 		}
 	} else {
-		_, _ = fmt.Fprintf(w, "TYPE\tVALUE\n")
-		_, _ = fmt.Fprintf(w, "----\t-----\n")
+		_, _ = fmt.Fprintf(tw, "TYPE\tVALUE\n")
+		_, _ = fmt.Fprintf(tw, "----\t-----\n")
 		for _, r := range result.Records {
-			_, _ = fmt.Fprintf(w, "%s\t%s\n", r.Type, r.Value)
+			_, _ = fmt.Fprintf(tw, "%s\t%s\n", r.Type, r.Value)
 		}
 	}
 }
