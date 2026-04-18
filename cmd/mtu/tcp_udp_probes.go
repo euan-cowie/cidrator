@@ -131,19 +131,25 @@ func (p *TCPProber) ProbeTCP(ctx context.Context, size int) *ProbeResult {
 		}
 	}()
 
+	payloadSize := targetMSS
+
 	// --- MSS Validation: Detect TSO/GSO False Positives ---
 	// If we asked for 9000 bytes (Jumbo), but the kernel negotiated 1460 (Standard),
 	// any large Write() will be segmented. This is a false positive for PMTUD.
+	//
+	// Allow the common 12-byte TCP timestamp option in the negotiated MSS. In that
+	// case we still write only the negotiated MSS so the kernel emits a single
+	// full-size segment on the wire instead of splitting the payload.
 	actualMSS, err := getTCPMSS(conn)
 	if err == nil && actualMSS > 0 {
-		// STRICT CHECK: The payload must NOT exceed the negotiated MSS.
-		// Tolerance removed to align TCP results exactly with UDP/Wire limits.
-		if actualMSS < targetMSS {
+		var ok bool
+		payloadSize, ok = tcpProbePayloadSize(size, actualMSS, p.ipv6)
+		if !ok {
 			return &ProbeResult{
 				Size:    size,
 				Success: false,
 				RTT:     time.Since(start),
-				Error:   fmt.Errorf("false positive detected: negotiated MSS %d < target %d (TSO/GSO active)", actualMSS, targetMSS),
+				Error:   fmt.Errorf("false positive detected: negotiated MSS %d is too small for packet size %d", actualMSS, size),
 			}
 		}
 	}
@@ -165,8 +171,6 @@ func (p *TCPProber) ProbeTCP(ctx context.Context, size int) *ProbeResult {
 			Error:   err,
 		}
 	}
-
-	payloadSize := payloadSizeForPacket(size, tcpPacketOverhead(p.ipv6))
 
 	// Send payload data to actually test the path MTU
 	payload := make([]byte, payloadSize)
