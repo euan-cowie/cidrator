@@ -104,6 +104,9 @@ make test
 # Linux namespace MTU lab
 make test-lab
 
+# Linux hop-by-hop MTU lab
+make test-lab-hops
+
 # Linux ICMP black-hole PLPMTUD lab
 make test-lab-plpmtud
 

@@ -142,8 +142,13 @@ func (p *TCPProber) ProbeTCP(ctx context.Context, size int) *ProbeResult {
 	// full-size segment on the wire instead of splitting the payload.
 	actualMSS, err := getTCPMSS(conn)
 	if err == nil && actualMSS > 0 {
+		timestampsEnabled, timestampErr := tcpTimestampsEnabled(conn)
+		if timestampErr != nil {
+			timestampsEnabled = false
+		}
+
 		var ok bool
-		payloadSize, ok = tcpProbePayloadSize(size, actualMSS, p.ipv6)
+		payloadSize, ok = tcpProbePayloadSize(size, actualMSS, timestampsEnabled, p.ipv6)
 		if !ok {
 			return &ProbeResult{
 				Size:    size,

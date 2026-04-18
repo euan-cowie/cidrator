@@ -36,7 +36,7 @@ func runDiscover(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("hop-by-hop discovery only supports ICMP protocol")
 	}
 
-	if !opts.Quiet {
+	if !opts.Quiet && !jsonOutput {
 		if opts.HopsMode {
 			fmt.Printf("Hop-by-hop MTU discovery to %s...\n", opts.Destination)
 			fmt.Printf("Protocol: %s, Max probe size: %d, Max hops: %d, Timeout: %v\n", opts.Protocol, opts.MaxMTU, opts.MaxHops, opts.Timeout)
@@ -58,6 +58,9 @@ func runDiscover(cmd *cobra.Command, args []string) error {
 		discoverer, err := newMTUDiscoverer(opts)
 		if err != nil {
 			return err
+		}
+		if !jsonOutput && !opts.Quiet {
+			discoverer.SetProgressWriter(os.Stdout)
 		}
 		defer func() {
 			if closeErr := discoverer.Close(); closeErr != nil && !opts.Quiet {

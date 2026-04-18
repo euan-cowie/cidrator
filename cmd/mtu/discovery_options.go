@@ -177,11 +177,39 @@ func newDiscoveryContext(opts discoveryOptions) (context.Context, context.Cancel
 }
 
 func discoveryTimeoutBudget(opts discoveryOptions) time.Duration {
-	estimated := time.Duration(estimatedDiscoveryProbes(opts))*opts.Timeout + 5*time.Second
+	estimated := estimatedDiscoveryDuration(opts) + 5*time.Second
 	if estimated < 60*time.Second {
 		return 60 * time.Second
 	}
 	return estimated
+}
+
+func estimatedDiscoveryDuration(opts discoveryOptions) time.Duration {
+	estimated := time.Duration(estimatedDiscoveryProbes(opts)) * discoveryProbeDurationBudget(opts)
+	if opts.PLPMTUD {
+		estimated += estimatedPLPMTUDPauseBudget(opts)
+	}
+	return estimated
+}
+
+func discoveryProbeDurationBudget(opts discoveryOptions) time.Duration {
+	budget := opts.Timeout
+	if opts.Protocol == "icmp" && opts.PacketsPerSecond > 0 {
+		pacingInterval := time.Second / time.Duration(opts.PacketsPerSecond)
+		if pacingInterval > budget {
+			budget = pacingInterval
+		}
+	}
+	return budget
+}
+
+func estimatedPLPMTUDPauseBudget(opts discoveryOptions) time.Duration {
+	stepSize := 64
+	sweepSteps := ((opts.MaxMTU - opts.MinMTU) / stepSize) + 1
+	if sweepSteps <= 1 {
+		return 0
+	}
+	return time.Duration(sweepSteps-1) * 100 * time.Millisecond
 }
 
 func estimatedDiscoveryProbes(opts discoveryOptions) int {

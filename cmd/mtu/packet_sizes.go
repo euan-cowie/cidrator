@@ -28,19 +28,19 @@ func tcpMSSForMTU(mtu int, ipv6 bool) int {
 	return mtu - tcpPacketOverhead(ipv6)
 }
 
-func tcpProbePayloadSize(packetSize, negotiatedMSS int, ipv6 bool) (int, bool) {
+func tcpProbePayloadSize(packetSize, negotiatedMSS int, timestampsEnabled, ipv6 bool) (int, bool) {
 	targetPayload := payloadSizeForPacket(packetSize, tcpPacketOverhead(ipv6))
 	if negotiatedMSS <= 0 {
 		return targetPayload, true
 	}
 
-	if targetPayload-negotiatedMSS > tcpTimestampOptionBytes {
-		return 0, false
+	if negotiatedMSS >= targetPayload {
+		return targetPayload, true
 	}
 
-	if negotiatedMSS < targetPayload {
+	if timestampsEnabled && targetPayload-negotiatedMSS == tcpTimestampOptionBytes {
 		return negotiatedMSS, true
 	}
 
-	return targetPayload, true
+	return 0, false
 }

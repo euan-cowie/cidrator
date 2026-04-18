@@ -26,3 +26,8 @@ func setTCPMSS(fd uintptr, mss int) error {
 func getTCPMSS(conn net.Conn) (int, error) {
 	return 0, nil // Return 0 to skip validation on unsupported platforms
 }
+
+// tcpTimestampsEnabled is a stub for unsupported platforms.
+func tcpTimestampsEnabled(conn net.Conn) (bool, error) {
+	return false, nil
+}

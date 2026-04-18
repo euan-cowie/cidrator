@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"net"
+	"os"
 	"sync"
 	"time"
 
@@ -28,11 +30,23 @@ type FragmentationError struct {
 	OriginalDstPort int
 }
 
+type icmpReadConn interface {
+	SetReadDeadline(time.Time) error
+	ReadFrom([]byte) (int, net.Addr, error)
+	Close() error
+}
+
+var openICMPListenPacket = func(network, address string) (icmpReadConn, error) {
+	return icmp.ListenPacket(network, address)
+}
+
+var icmpListenerWarningOutput io.Writer = os.Stderr
+
 // ICMPListener listens for ICMP "Fragmentation Needed and DF Set" errors
 // as specified in RFC 1191 Section 4
 type ICMPListener struct {
-	conn4   *icmp.PacketConn
-	conn6   *icmp.PacketConn
+	conn4   icmpReadConn
+	conn6   icmpReadConn
 	errors  chan *FragmentationError
 	done    chan struct{}
 	mu      sync.Mutex
@@ -48,19 +62,19 @@ func NewICMPListener() (*ICMPListener, error) {
 	}
 
 	// Try to open IPv4 ICMP socket
-	conn4, err := icmp.ListenPacket("ip4:icmp", "0.0.0.0")
+	conn4, err := openICMPListenPacket("ip4:icmp", "0.0.0.0")
 	if err != nil {
 		// May fail without privileges, continue anyway
-		fmt.Printf("Warning: Could not open IPv4 ICMP socket: %v\n", err)
+		_, _ = fmt.Fprintf(icmpListenerWarningOutput, "Warning: Could not open IPv4 ICMP socket: %v\n", err)
 	} else {
 		listener.conn4 = conn4
 	}
 
 	// Try to open IPv6 ICMP socket
-	conn6, err := icmp.ListenPacket("ip6:ipv6-icmp", "::")
+	conn6, err := openICMPListenPacket("ip6:ipv6-icmp", "::")
 	if err != nil {
 		// May fail without privileges or IPv6 support
-		fmt.Printf("Warning: Could not open IPv6 ICMP socket: %v\n", err)
+		_, _ = fmt.Fprintf(icmpListenerWarningOutput, "Warning: Could not open IPv6 ICMP socket: %v\n", err)
 	} else {
 		listener.conn6 = conn6
 	}

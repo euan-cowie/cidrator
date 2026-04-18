@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"os/signal"
 	"strconv"
 	"strings"
@@ -25,6 +26,67 @@ const (
 type peerProtocolSet struct {
 	udp bool
 	tcp bool
+}
+
+type peerUDPConn interface {
+	SetReadDeadline(time.Time) error
+	ReadFromUDP([]byte) (int, *net.UDPAddr, error)
+	WriteToUDP([]byte, *net.UDPAddr) (int, error)
+	Close() error
+	LocalAddr() net.Addr
+}
+
+type peerTCPListener interface {
+	Accept() (net.Conn, error)
+	Close() error
+	Addr() net.Addr
+}
+
+type peerTCPConn interface {
+	Read([]byte) (int, error)
+	Write([]byte) (int, error)
+	Close() error
+	RemoteAddr() net.Addr
+}
+
+type peerRuntime struct {
+	newContext func() (context.Context, context.CancelFunc)
+	openUDP    func(listenAddr string, port int) (peerUDPConn, error)
+	openTCP    func(listenAddr string, port int) (peerTCPListener, error)
+	runUDP     func(ctx context.Context, conn peerUDPConn, verbose bool, maxPacketSize int, limiter *RateLimiter) error
+	runTCP     func(ctx context.Context, listener peerTCPListener, verbose bool, maxPacketSize int, limiter *RateLimiter) error
+	stdout     io.Writer
+}
+
+var defaultPeerRuntime = peerRuntime{
+	newContext: func() (context.Context, context.CancelFunc) {
+		return signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	},
+	openUDP: func(listenAddr string, port int) (peerUDPConn, error) {
+		return openPeerUDPListener(listenAddr, port)
+	},
+	openTCP: func(listenAddr string, port int) (peerTCPListener, error) {
+		return openPeerTCPListener(listenAddr, port)
+	},
+	runUDP: func(ctx context.Context, conn peerUDPConn, verbose bool, maxPacketSize int, limiter *RateLimiter) error {
+		return runUDPServer(ctx, conn, verbose, maxPacketSize, limiter)
+	},
+	runTCP: func(ctx context.Context, listener peerTCPListener, verbose bool, maxPacketSize int, limiter *RateLimiter) error {
+		return runTCPServer(ctx, listener, verbose, maxPacketSize, limiter)
+	},
+	stdout: os.Stdout,
+}
+
+var resolvePeerUDPAddr = func(network, address string) (*net.UDPAddr, error) {
+	return net.ResolveUDPAddr(network, address)
+}
+
+var listenPeerUDP = func(network string, addr *net.UDPAddr) (*net.UDPConn, error) {
+	return net.ListenUDP(network, addr)
+}
+
+var listenPeerTCP = func(network, address string) (net.Listener, error) {
+	return net.Listen(network, address)
 }
 
 func (p peerProtocolSet) String() string {
@@ -74,6 +136,10 @@ func init() {
 }
 
 func runPeer(cmd *cobra.Command, args []string) error {
+	return runPeerWithRuntime(cmd, defaultPeerRuntime)
+}
+
+func runPeerWithRuntime(cmd *cobra.Command, runtime peerRuntime) error {
 	port, _ := cmd.Flags().GetInt("port")
 	proto, _ := cmd.Flags().GetString("proto")
 	listenAddr, _ := cmd.Flags().GetString("listen")
@@ -100,7 +166,26 @@ func runPeer(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	if runtime.newContext == nil {
+		runtime.newContext = defaultPeerRuntime.newContext
+	}
+	if runtime.openUDP == nil {
+		runtime.openUDP = defaultPeerRuntime.openUDP
+	}
+	if runtime.openTCP == nil {
+		runtime.openTCP = defaultPeerRuntime.openTCP
+	}
+	if runtime.runUDP == nil {
+		runtime.runUDP = defaultPeerRuntime.runUDP
+	}
+	if runtime.runTCP == nil {
+		runtime.runTCP = defaultPeerRuntime.runTCP
+	}
+	if runtime.stdout == nil {
+		runtime.stdout = io.Discard
+	}
+
+	ctx, stop := runtime.newContext()
 	defer stop()
 
 	limiter := NewRateLimiter(responsePPS)
@@ -108,9 +193,9 @@ func runPeer(cmd *cobra.Command, args []string) error {
 	var wg sync.WaitGroup
 	errCh := make(chan error, 2)
 
-	var udpConn *net.UDPConn
+	var udpConn peerUDPConn
 	if protocols.udp {
-		udpConn, err = openPeerUDPListener(listenAddr, port)
+		udpConn, err = runtime.openUDP(listenAddr, port)
 		if err != nil {
 			return err
 		}
@@ -119,9 +204,9 @@ func runPeer(cmd *cobra.Command, args []string) error {
 		}()
 	}
 
-	var tcpListener net.Listener
+	var tcpListener peerTCPListener
 	if protocols.tcp {
-		tcpListener, err = openPeerTCPListener(listenAddr, port)
+		tcpListener, err = runtime.openTCP(listenAddr, port)
 		if err != nil {
 			if udpConn != nil {
 				_ = udpConn.Close()
@@ -133,22 +218,22 @@ func runPeer(cmd *cobra.Command, args []string) error {
 		}()
 	}
 
-	fmt.Printf("Advanced peer-assisted MTU endpoint listening on %s (%s)\n", net.JoinHostPort(listenAddr, strconv.Itoa(port)), protocols.String())
-	fmt.Println("Designed for controlled MTU verification between hosts you manage.")
+	_, _ = fmt.Fprintf(runtime.stdout, "Advanced peer-assisted MTU endpoint listening on %s (%s)\n", net.JoinHostPort(listenAddr, strconv.Itoa(port)), protocols.String())
+	_, _ = fmt.Fprintln(runtime.stdout, "Designed for controlled MTU verification between hosts you manage.")
 	if allowRemote {
-		fmt.Println("Remote bind enabled. Do not expose this endpoint on the public internet.")
+		_, _ = fmt.Fprintln(runtime.stdout, "Remote bind enabled. Do not expose this endpoint on the public internet.")
 	} else {
-		fmt.Println("Bound to localhost only. Use --listen <addr> --allow-remote for controlled remote testing.")
+		_, _ = fmt.Fprintln(runtime.stdout, "Bound to localhost only. Use --listen <addr> --allow-remote for controlled remote testing.")
 	}
-	fmt.Printf("Use 'cidrator mtu discover <host> --proto udp|tcp --port %d' from another host.\n", port)
-	fmt.Println("Press Ctrl+C to stop")
+	_, _ = fmt.Fprintf(runtime.stdout, "Use 'cidrator mtu discover <host> --proto udp|tcp --port %d' from another host.\n", port)
+	_, _ = fmt.Fprintln(runtime.stdout, "Press Ctrl+C to stop")
 
 	if udpConn != nil {
-		fmt.Printf("UDP peer endpoint listening on %s\n", udpConn.LocalAddr())
+		_, _ = fmt.Fprintf(runtime.stdout, "UDP peer endpoint listening on %s\n", udpConn.LocalAddr())
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if serveErr := runUDPServer(ctx, udpConn, verbose, maxPacketSize, limiter); serveErr != nil && ctx.Err() == nil {
+			if serveErr := runtime.runUDP(ctx, udpConn, verbose, maxPacketSize, limiter); serveErr != nil && ctx.Err() == nil {
 				select {
 				case errCh <- fmt.Errorf("udp peer error: %w", serveErr):
 				default:
@@ -158,11 +243,11 @@ func runPeer(cmd *cobra.Command, args []string) error {
 	}
 
 	if tcpListener != nil {
-		fmt.Printf("TCP peer endpoint listening on %s\n", tcpListener.Addr())
+		_, _ = fmt.Fprintf(runtime.stdout, "TCP peer endpoint listening on %s\n", tcpListener.Addr())
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if serveErr := runTCPServer(ctx, tcpListener, verbose, maxPacketSize, limiter); serveErr != nil && ctx.Err() == nil {
+			if serveErr := runtime.runTCP(ctx, tcpListener, verbose, maxPacketSize, limiter); serveErr != nil && ctx.Err() == nil {
 				select {
 				case errCh <- fmt.Errorf("tcp peer error: %w", serveErr):
 				default:
@@ -183,7 +268,7 @@ func runPeer(cmd *cobra.Command, args []string) error {
 		wg.Wait()
 		return err
 	case <-ctx.Done():
-		fmt.Println("\nShutting down peer endpoint...")
+		_, _ = fmt.Fprintln(runtime.stdout, "\nShutting down peer endpoint...")
 		if udpConn != nil {
 			_ = udpConn.Close()
 		}
@@ -244,16 +329,16 @@ func resolvePeerListenIPs(listenAddr string) ([]net.IP, error) {
 	if ip := net.ParseIP(listenAddr); ip != nil {
 		return []net.IP{ip}, nil
 	}
-	return net.LookupIP(listenAddr)
+	return lookupIPAddrs(listenAddr)
 }
 
 func openPeerUDPListener(listenAddr string, port int) (*net.UDPConn, error) {
-	addr, err := net.ResolveUDPAddr("udp", net.JoinHostPort(listenAddr, strconv.Itoa(port)))
+	addr, err := resolvePeerUDPAddr("udp", net.JoinHostPort(listenAddr, strconv.Itoa(port)))
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve UDP listen address: %w", err)
 	}
 
-	conn, err := net.ListenUDP("udp", addr)
+	conn, err := listenPeerUDP("udp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start UDP peer endpoint: %w", err)
 	}
@@ -261,7 +346,7 @@ func openPeerUDPListener(listenAddr string, port int) (*net.UDPConn, error) {
 }
 
 func openPeerTCPListener(listenAddr string, port int) (net.Listener, error) {
-	listener, err := net.Listen("tcp", net.JoinHostPort(listenAddr, strconv.Itoa(port)))
+	listener, err := listenPeerTCP("tcp", net.JoinHostPort(listenAddr, strconv.Itoa(port)))
 	if err != nil {
 		return nil, fmt.Errorf("failed to start TCP peer endpoint: %w", err)
 	}
@@ -269,7 +354,7 @@ func openPeerTCPListener(listenAddr string, port int) (net.Listener, error) {
 }
 
 // runUDPServer starts a UDP peer endpoint.
-func runUDPServer(ctx context.Context, conn *net.UDPConn, verbose bool, maxPacketSize int, limiter *RateLimiter) error {
+func runUDPServer(ctx context.Context, conn peerUDPConn, verbose bool, maxPacketSize int, limiter *RateLimiter) error {
 	buf := make([]byte, 65535)
 
 	for {
@@ -316,7 +401,7 @@ func runUDPServer(ctx context.Context, conn *net.UDPConn, verbose bool, maxPacke
 }
 
 // runTCPServer starts a TCP peer endpoint.
-func runTCPServer(ctx context.Context, listener net.Listener, verbose bool, maxPacketSize int, limiter *RateLimiter) error {
+func runTCPServer(ctx context.Context, listener peerTCPListener, verbose bool, maxPacketSize int, limiter *RateLimiter) error {
 	go func() {
 		<-ctx.Done()
 		_ = listener.Close()
@@ -336,7 +421,7 @@ func runTCPServer(ctx context.Context, listener net.Listener, verbose bool, maxP
 }
 
 // handleTCPConnection handles a single TCP peer connection.
-func handleTCPConnection(ctx context.Context, conn net.Conn, verbose bool, maxPacketSize int, limiter *RateLimiter) {
+func handleTCPConnection(ctx context.Context, conn peerTCPConn, verbose bool, maxPacketSize int, limiter *RateLimiter) {
 	defer func() {
 		if closeErr := conn.Close(); closeErr != nil {
 			_ = closeErr

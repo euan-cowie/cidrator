@@ -49,6 +49,7 @@ func TestTCPProbePayloadSize(t *testing.T) {
 		name          string
 		packetSize    int
 		negotiatedMSS int
+		timestamps    bool
 		ipv6          bool
 		wantPayload   int
 		wantOK        bool
@@ -57,20 +58,31 @@ func TestTCPProbePayloadSize(t *testing.T) {
 			name:          "matches target without options",
 			packetSize:    1400,
 			negotiatedMSS: 1360,
+			timestamps:    false,
 			wantPayload:   1360,
 			wantOK:        true,
 		},
 		{
-			name:          "allows timestamp option overhead",
+			name:          "allows exact timestamp option overhead when enabled",
 			packetSize:    1400,
 			negotiatedMSS: 1348,
+			timestamps:    true,
 			wantPayload:   1348,
 			wantOK:        true,
 		},
 		{
-			name:          "rejects path that is materially smaller",
+			name:          "rejects exact 12-byte shortfall without negotiated timestamps",
+			packetSize:    1400,
+			negotiatedMSS: 1348,
+			timestamps:    false,
+			wantPayload:   0,
+			wantOK:        false,
+		},
+		{
+			name:          "rejects path that is materially smaller even with timestamps",
 			packetSize:    1500,
 			negotiatedMSS: 1348,
+			timestamps:    true,
 			wantPayload:   0,
 			wantOK:        false,
 		},
@@ -78,6 +90,7 @@ func TestTCPProbePayloadSize(t *testing.T) {
 			name:          "falls back when MSS is unavailable",
 			packetSize:    1400,
 			negotiatedMSS: 0,
+			timestamps:    false,
 			wantPayload:   1360,
 			wantOK:        true,
 		},
@@ -85,12 +98,13 @@ func TestTCPProbePayloadSize(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotPayload, gotOK := tcpProbePayloadSize(tt.packetSize, tt.negotiatedMSS, tt.ipv6)
+			gotPayload, gotOK := tcpProbePayloadSize(tt.packetSize, tt.negotiatedMSS, tt.timestamps, tt.ipv6)
 			if gotPayload != tt.wantPayload || gotOK != tt.wantOK {
 				t.Fatalf(
-					"tcpProbePayloadSize(%d, %d, ipv6=%t) = (%d, %t), want (%d, %t)",
+					"tcpProbePayloadSize(%d, %d, timestamps=%t, ipv6=%t) = (%d, %t), want (%d, %t)",
 					tt.packetSize,
 					tt.negotiatedMSS,
+					tt.timestamps,
 					tt.ipv6,
 					gotPayload,
 					gotOK,

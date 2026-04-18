@@ -80,6 +80,9 @@ jobs:
     - name: Namespace MTU lab
       run: bash ./test/labs/mtu-namespaces.sh ./bin/cidrator
 
+    - name: Hop-by-hop MTU lab
+      run: bash ./test/labs/mtu-hop-by-hop.sh ./bin/cidrator
+
     - name: PLPMTUD black-hole lab
       run: bash ./test/labs/mtu-plpmtud-blackhole.sh ./bin/cidrator
 
@@ -88,6 +91,106 @@ jobs:
         ./bin/cidrator cidr explain 192.168.1.0/24 >/dev/null
         ./bin/cidrator cidr count 10.0.0.0/16 >/dev/null
         echo "✅ Integration tests passed"
+
+  mtu-coverage:
+    name: MTU Coverage (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Run MTU coverage
+      run: |
+        go test -covermode=count -coverprofile="mtu-${{ runner.os }}.out" ./cmd/mtu
+
+    - name: Upload MTU coverage artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: mtu-coverage-${{ runner.os }}
+        path: mtu-${{ runner.os }}.out
+
+  mtu-coverage-summary:
+    name: MTU Coverage Summary
+    runs-on: ubuntu-latest
+    needs: mtu-coverage
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Download MTU coverage artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: mtu-coverage-artifacts
+        pattern: mtu-coverage-*
+        merge-multiple: true
+
+    - name: Merge MTU coverage profiles
+      run: |
+        python3 - <<'PY'
+        from pathlib import Path
+
+        profiles = sorted(Path("mtu-coverage-artifacts").glob("*.out"))
+        if not profiles:
+            raise SystemExit("no MTU coverage profiles were downloaded")
+
+        mode = None
+        merged = {}
+
+        for path in profiles:
+            with path.open("r", encoding="utf-8") as handle:
+                for index, raw_line in enumerate(handle):
+                    line = raw_line.strip()
+                    if not line:
+                        continue
+                    if index == 0:
+                        if not line.startswith("mode: "):
+                            raise SystemExit(f"invalid coverprofile header in {path}: {line}")
+                        if mode is None:
+                            mode = line
+                        elif mode != line:
+                            raise SystemExit(f"mismatched coverprofile mode in {path}: {line} != {mode}")
+                        continue
+
+                    parts = line.split()
+                    if len(parts) != 3:
+                        raise SystemExit(f"invalid coverprofile line in {path}: {line}")
+                    key = f"{parts[0]} {parts[1]}"
+                    merged[key] = merged.get(key, 0) + int(parts[2])
+
+        with Path("mtu-coverage-merged.out").open("w", encoding="utf-8") as handle:
+            handle.write(f"{mode}\n")
+            for key in sorted(merged):
+                handle.write(f"{key} {merged[key]}\n")
+        PY
+
+    - name: Report merged MTU coverage
+      run: go tool cover -func=mtu-coverage-merged.out | tail -n 1
+
+    - name: Upload merged MTU coverage artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: mtu-coverage-merged
+        path: mtu-coverage-merged.out
 
   # Lint job (must pass)
   lint:

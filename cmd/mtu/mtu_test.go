@@ -617,6 +617,40 @@ func TestDiscoveryTimeoutBudgetRespectsPerProbeTimeout(t *testing.T) {
 	if scaledBudget != 75*time.Second {
 		t.Fatalf("expected scaled budget to account for longer probe timeouts, got %v", scaledBudget)
 	}
+
+	pacedBudget := discoveryTimeoutBudget(discoveryOptions{
+		Protocol:         "icmp",
+		MinMTU:           576,
+		MaxMTU:           650,
+		Step:             1,
+		Timeout:          10 * time.Millisecond,
+		PacketsPerSecond: 1,
+	})
+	if pacedBudget != 80*time.Second {
+		t.Fatalf("expected paced budget to account for ICMP rate limiting, got %v", pacedBudget)
+	}
+}
+
+func TestFallbackSuggestionPMTUUsesLoopbackMTUWithoutMaxClamp(t *testing.T) {
+	mock := NewMockInterfaceDetector()
+	old := getSuggestionInterfaces
+	getSuggestionInterfaces = mock.GetNetworkInterfaces
+	defer func() {
+		getSuggestionInterfaces = old
+	}()
+
+	pmtu, err := fallbackSuggestionPMTU(discoveryOptions{
+		Destination: "127.0.0.1",
+		MinMTU:      576,
+		MaxMTU:      9216,
+	})
+	if err != nil {
+		t.Fatalf("fallbackSuggestionPMTU returned error: %v", err)
+	}
+
+	if pmtu != 16384 {
+		t.Fatalf("fallbackSuggestionPMTU returned %d, want 16384", pmtu)
+	}
 }
 
 func TestNewWatchDropErrorSilencesCobraErrorsForJSON(t *testing.T) {

@@ -7,6 +7,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var getSuggestionInterfaces = GetNetworkInterfaces
+
 // suggestCmd represents the suggest command
 var suggestCmd = &cobra.Command{
 	Use:   "suggest <destination>",
@@ -137,7 +139,7 @@ func fallbackSuggestionPMTU(opts discoveryOptions) (int, error) {
 		return 0, fmt.Errorf("%s does not resolve to a loopback address", opts.Destination)
 	}
 
-	result, err := GetNetworkInterfaces()
+	result, err := getSuggestionInterfaces()
 	if err != nil {
 		return 0, err
 	}
@@ -151,9 +153,6 @@ func fallbackSuggestionPMTU(opts discoveryOptions) (int, error) {
 	if loopbackMTU == 0 {
 		return 0, fmt.Errorf("no loopback interface MTU available")
 	}
-	if loopbackMTU > opts.MaxMTU {
-		loopbackMTU = opts.MaxMTU
-	}
 	if loopbackMTU < opts.MinMTU {
 		return 0, fmt.Errorf("loopback MTU %d is below the configured minimum %d", loopbackMTU, opts.MinMTU)
 	}
@@ -165,5 +164,5 @@ func resolveTargetIPs(target string) ([]net.IP, error) {
 	if ip := net.ParseIP(target); ip != nil {
 		return []net.IP{ip}, nil
 	}
-	return net.LookupIP(target)
+	return lookupIPAddrs(target)
 }

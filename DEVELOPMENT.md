@@ -44,6 +44,7 @@ make test-quick         # Fast tests during development
 make test               # Full tests with race detection
 make test-integration   # Integration tests
 make test-lab           # Linux namespace MTU lab (Linux + passwordless sudo)
+make test-lab-hops      # Linux hop-by-hop MTU lab
 make test-lab-plpmtud   # Linux ICMP black-hole PLPMTUD lab
 make examples           # See examples in action
 ```
@@ -136,6 +137,7 @@ make run ARGS="--help"   # Test if binary works
 ```bash
 make build
 make test-lab            # Requires Linux, iproute2, ping, and passwordless sudo
+make test-lab-hops       # Requires Linux, iproute2, ping, and passwordless sudo
 make test-lab-plpmtud    # Requires Linux, iproute2, iptables, ping, and passwordless sudo
 ```
 
