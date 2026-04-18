@@ -68,8 +68,13 @@ To defeat Black Holes, `cidrator` implements **PLPMTUD**.
 
 ### C. Protocol-Specific Probing (RFC 8899)
 MTU can vary by protocol (e.g., some middleboxes treat UDP differently than ICMP).
-- **`--proto udp`**: Implements **RFC 8899**. It sends UDP probes to a `cidrator mtu server` which echoes them back. This verifies the path is valid **application-to-application**.
+- **`--proto udp`**: Implements **RFC 8899**. When pointed at a host running `cidrator mtu peer`, it sends UDP probes to a controlled peer endpoint which echoes them back. This verifies the path is valid **application-to-application**.
 - **`--proto tcp`**: Establishes a real TCP connection and pushes data segments with DF=1 to verify the TCP Path MTU, avoiding the common pitfall where "TCP Ping" (SYN packets) falsely reports a high MTU because SYN packets are small.
+
+The peer endpoint is intentionally an advanced workflow:
+- It binds to `127.0.0.1` by default.
+- Non-loopback binds require `--allow-remote`.
+- It is meant for controlled networks where you manage both hosts, not public internet exposure.
 
 ### D. Practical Suggestions
 Because overhead matters, `cidrator` calculates the safe **MSS (Maximum Segment Size)** and tunnel MTUs for you:
@@ -85,7 +90,7 @@ Because overhead matters, `cidrator` calculates the safe **MSS (Maximum Segment 
 | **RFC 1191** | Classical PMTUD for IPv4 (ICMP-based). | ✅ Full listener implementation. |
 | **RFC 8201** | PMTUD for IPv6 (Packet Too Big). | ✅ Full IPv6 support. |
 | **RFC 4821** | PLPMTUD (Probing without ICMP). | ✅ Used for Black Hole detection. |
-| **RFC 8899** | Datagram PLPMTUD (UDP). | ✅ Via `cidrator mtu server`. |
+| **RFC 8899** | Datagram PLPMTUD (UDP). | ✅ Via `cidrator mtu peer`. |
 
 ## Further Reading
 - [Cisco: Resolve IPv4 Fragmentation, MTU, MSS, and PMTUD Issues](https://www.cisco.com/c/en/us/support/docs/ip/generic-routing-encapsulation-gre/25885-pmtud-ipfrag.html)

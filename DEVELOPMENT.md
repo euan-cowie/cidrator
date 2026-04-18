@@ -43,6 +43,7 @@ git push origin feature/awesome-thing
 make test-quick         # Fast tests during development
 make test               # Full tests with race detection
 make test-integration   # Integration tests
+make test-lab           # Linux namespace MTU lab (Linux + passwordless sudo)
 make examples           # See examples in action
 ```
 
@@ -128,6 +129,12 @@ make build
 ```bash
 make test-quick          # See specific failures
 make run ARGS="--help"   # Test if binary works
+```
+
+### MTU lab fails?
+```bash
+make build
+make test-lab            # Requires Linux, iproute2, ping, and passwordless sudo
 ```
 
 ### Linting errors?

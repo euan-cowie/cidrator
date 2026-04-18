@@ -184,7 +184,7 @@ func (p *TCPProber) ProbeTCP(ctx context.Context, size int) *ProbeResult {
 		}
 	}
 
-	// Wait for any response (the echo server should respond)
+	// Wait for any response from the peer-assisted endpoint.
 	// A timeout or error indicates the packet was too large
 	response := make([]byte, 1)
 	_, err = conn.Read(response)

@@ -28,6 +28,7 @@ Cidrator is a CLI for three concrete jobs: CIDR analysis, DNS lookups, and Path-
 - **👀 Continuous Monitoring** - Watch mode with real-time change detection and alerting
 - **🖥️ Interface Analysis** - Cross-platform network interface MTU enumeration
 - **💡 Protocol Suggestions** - Calculate optimal frame sizes for TCP, VPN protocols, and more
+- **🤝 Advanced Peer Mode** - Controlled endpoint-assisted TCP/UDP verification when you manage both hosts
 - **🛡️ ICMP-Filtered Fallback** - PLPMTUD (RFC 4821) fallback for restrictive networks
 - **🔒 Security Features** - Rate limiting, packet randomization, and retry throttling
 - **🌐 Full Dual-Stack** - Complete IPv4 and IPv6 support across all probe methods
@@ -239,6 +240,30 @@ $ cidrator mtu suggest vpn-server.corp.com --proto tcp --json
     "ipsec_esp_udp": 1388
   }
 }
+```
+
+#### **🤝 Advanced Peer-Assisted Verification**
+
+When you manage both ends of a path, `cidrator` can verify MTU behavior against a
+controlled peer endpoint instead of relying on whatever service happens to be
+listening on the far side.
+
+This is an advanced mode. The peer endpoint binds to `127.0.0.1` by default and
+requires explicit opt-in to listen on a non-loopback address.
+
+```bash
+# On the remote host you control
+$ cidrator mtu peer --proto udp --listen 0.0.0.0 --allow-remote --port 4821
+Advanced peer-assisted MTU endpoint listening on 0.0.0.0:4821 (udp)
+
+# From another host
+$ cidrator mtu discover branch-office.example.com --proto udp --port 4821
+Target: branch-office.example.com
+Protocol: udp
+Path MTU: 1472
+TCP MSS: 1432
+Hops: 10
+Elapsed: 158ms
 ```
 
 ### **CIDR Commands**

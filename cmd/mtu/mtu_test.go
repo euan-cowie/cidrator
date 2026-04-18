@@ -36,6 +36,7 @@ Available operations:
 - watch: Re-run discover every N seconds and notify on change
 - interfaces: List local interfaces + configured MTU
 - suggest: Print TCP MSS / IPSec ESP / WireGuard frame sizes for the path
+- peer: Advanced peer-assisted endpoint for controlled TCP/UDP MTU verification
 
 All commands support both IPv4 and IPv6 with multiple probe protocols.`,
 	}
@@ -45,6 +46,7 @@ All commands support both IPv4 and IPv6 with multiple probe protocols.`,
 	cmd.AddCommand(watchCmd)
 	cmd.AddCommand(interfacesCmd)
 	cmd.AddCommand(suggestCmd)
+	cmd.AddCommand(peerCmd)
 
 	// Global flags for MTU commands
 	cmd.PersistentFlags().Bool("4", false, "Force IPv4")
@@ -85,6 +87,9 @@ func captureCommandOutput(t *testing.T, cmd *cobra.Command, args []string) (stri
 	case watchCmd:
 		cmdToRun = createFreshMTUCommand()
 		args = append([]string{"watch"}, args...)
+	case peerCmd:
+		cmdToRun = createFreshMTUCommand()
+		args = append([]string{"peer"}, args...)
 	default:
 		cmdToRun = cmd
 	}
@@ -129,6 +134,84 @@ func TestMTUCommand(t *testing.T) {
 	assertTestResult(t, err, output, false, "watch")
 	assertTestResult(t, err, output, false, "interfaces")
 	assertTestResult(t, err, output, false, "suggest")
+	assertTestResult(t, err, output, false, "peer")
+}
+
+func TestPeerCommand(t *testing.T) {
+	tests := []struct {
+		name           string
+		args           []string
+		expectError    bool
+		expectedSubstr string
+	}{
+		{
+			name:           "help flag",
+			args:           []string{"--help"},
+			expectError:    false,
+			expectedSubstr: "advanced mode",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			output, err := captureCommandOutput(t, peerCmd, tt.args)
+			assertTestResult(t, err, output, tt.expectError, tt.expectedSubstr)
+		})
+	}
+}
+
+func TestServerAliasRemoved(t *testing.T) {
+	output, err := captureCommandOutput(t, MTUCmd, []string{"server", "--help"})
+	if err == nil {
+		t.Fatalf("expected unknown-command error for removed server alias, got output %q", output)
+	}
+}
+
+func TestParsePeerProtocols(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		wantUDP   bool
+		wantTCP   bool
+		expectErr bool
+	}{
+		{name: "udp only", input: "udp", wantUDP: true},
+		{name: "tcp only", input: "tcp", wantTCP: true},
+		{name: "both", input: "tcp,udp", wantUDP: true, wantTCP: true},
+		{name: "invalid", input: "icmp", expectErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			protocols, err := parsePeerProtocols(tt.input)
+			if tt.expectErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if protocols.udp != tt.wantUDP || protocols.tcp != tt.wantTCP {
+				t.Fatalf("unexpected protocol set: udp=%t tcp=%t", protocols.udp, protocols.tcp)
+			}
+		})
+	}
+}
+
+func TestValidatePeerListenAddress(t *testing.T) {
+	if err := validatePeerListenAddress("127.0.0.1", false); err != nil {
+		t.Fatalf("loopback listen address should be accepted: %v", err)
+	}
+
+	if err := validatePeerListenAddress("0.0.0.0", false); err == nil {
+		t.Fatal("expected non-loopback bind to require --allow-remote")
+	}
+
+	if err := validatePeerListenAddress("0.0.0.0", true); err != nil {
+		t.Fatalf("allow-remote should permit wildcard bind: %v", err)
+	}
 }
 
 // TestDiscoverCommand tests the discover subcommand

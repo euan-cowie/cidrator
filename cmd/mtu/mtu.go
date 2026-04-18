@@ -21,6 +21,7 @@ Available operations:
 - watch: Re-run discover every N seconds and notify on change
 - interfaces: List local interfaces + configured MTU
 - suggest: Print TCP MSS / IPSec ESP / WireGuard frame sizes for the path
+- peer: Advanced peer-assisted endpoint for controlled TCP/UDP MTU verification
 
 All commands support both IPv4 and IPv6 with multiple probe protocols.`,
 }
@@ -31,7 +32,7 @@ func init() {
 	MTUCmd.AddCommand(watchCmd)
 	MTUCmd.AddCommand(interfacesCmd)
 	MTUCmd.AddCommand(suggestCmd)
-	MTUCmd.AddCommand(serverCmd)
+	MTUCmd.AddCommand(peerCmd)
 
 	// Global flags for MTU commands
 	MTUCmd.PersistentFlags().Bool("4", false, "Force IPv4")

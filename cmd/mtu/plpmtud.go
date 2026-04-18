@@ -81,7 +81,7 @@ func (p *PLPMTUDProber) DiscoverPMTUWithPLPMTUD(ctx context.Context, minMTU, max
 // testPacketSize tests if a packet of given size can be sent successfully
 func (p *PLPMTUDProber) testPacketSize(ctx context.Context, size int) bool {
 	// In a real implementation, this would send application-layer data
-	// to a willing echo server on the specified PLP port
+	// to a willing peer endpoint on the specified PLP port
 	// For now, we'll simulate using UDP probes
 
 	prober, err := NewUDPProber(p.target, p.ipv6, 0, p.options.BaseTimeout)

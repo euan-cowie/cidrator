@@ -76,6 +76,8 @@ func (h *TestHelper) CaptureCommandOutput(cmd *cobra.Command, args []string) (st
 		args = append([]string{"suggest"}, args...)
 	case watchCmd:
 		args = append([]string{"watch"}, args...)
+	case peerCmd:
+		args = append([]string{"peer"}, args...)
 	default:
 		cmdToRun = cmd
 	}
@@ -120,6 +122,7 @@ func (h *TestHelper) createFreshMTUCommand() *cobra.Command {
 	cmd.AddCommand(watchCmd)
 	cmd.AddCommand(interfacesCmd)
 	cmd.AddCommand(suggestCmd)
+	cmd.AddCommand(peerCmd)
 
 	// Global flags for MTU commands
 	cmd.PersistentFlags().Bool("4", false, "Force IPv4")

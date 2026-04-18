@@ -145,6 +145,12 @@ test-integration: build ## 🧪 Integration tests
 	@./bin/cidrator cidr explain 192.168.1.0/24 >/dev/null
 	@echo "$(GREEN)✅ Integration tests passed$(NC)"
 
+.PHONY: test-lab
+test-lab: build ## 🧪 Linux namespace MTU lab (requires Linux + passwordless sudo)
+	@echo "$(BLUE)Running namespace MTU lab...$(NC)"
+	@bash ./test/labs/mtu-namespaces.sh ./bin/cidrator
+	@echo "$(GREEN)✅ Namespace MTU lab passed$(NC)"
+
 # === HELP ===
 
 .PHONY: help

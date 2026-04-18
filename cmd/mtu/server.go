@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -14,93 +15,261 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// serverCmd represents the server command
-var serverCmd = &cobra.Command{
-	Use:   "server",
-	Short: "Start an echo server for RFC 1191 PMTUD testing",
-	Long: `Starts a UDP and/or TCP echo server that reflects received packets back to the sender.
+const (
+	defaultPeerPort          = 4821
+	defaultPeerListenAddress = "127.0.0.1"
+	defaultPeerMaxPacketSize = 9216
+	defaultPeerResponsePPS   = 100
+)
 
-This enables RFC 1191 Path MTU Discovery testing by providing an endpoint
-that will echo data back, allowing the client to determine if packets of
-a given size can traverse the path.
+type peerProtocolSet struct {
+	udp bool
+	tcp bool
+}
+
+func (p peerProtocolSet) String() string {
+	switch {
+	case p.udp && p.tcp:
+		return "udp,tcp"
+	case p.udp:
+		return "udp"
+	case p.tcp:
+		return "tcp"
+	default:
+		return ""
+	}
+}
+
+// peerCmd represents the peer-assisted MTU endpoint command.
+var peerCmd = &cobra.Command{
+	Use:   "peer",
+	Short: "Run an advanced peer-assisted endpoint for MTU verification",
+	Long: `Peer runs a controlled TCP/UDP echo endpoint for peer-assisted MTU verification.
+
+This is an advanced mode for cases where you control both ends of the path and
+want application-to-application MTU validation. Use it with
+'cidrator mtu discover --proto udp|tcp --port ...' against a host running this
+endpoint.
+
+Safety defaults:
+- Binds to 127.0.0.1 by default
+- Requires --allow-remote for non-loopback addresses
+- Rate-limits responses and caps echoed packet size
 
 Examples:
-  cidrator mtu server --port 4821
-  cidrator mtu server --port 4821 --proto udp
-  cidrator mtu server --port 4821 --proto tcp`,
-	RunE: runServer,
+  cidrator mtu peer
+  cidrator mtu peer --proto udp --listen 0.0.0.0 --allow-remote
+  cidrator mtu discover branch-office.example.com --proto udp --port 4821`,
+	RunE: runPeer,
 }
 
 func init() {
-	serverCmd.Flags().Int("port", 4821, "Port to listen on")
-	serverCmd.Flags().String("proto", "udp,tcp", "Protocols to serve (udp, tcp, or udp,tcp)")
-	serverCmd.Flags().Bool("verbose", false, "Log received packets")
+	peerCmd.Flags().Int("port", defaultPeerPort, "Port to listen on")
+	peerCmd.Flags().String("proto", "udp,tcp", "Protocols to serve (udp, tcp, or udp,tcp)")
+	peerCmd.Flags().String("listen", defaultPeerListenAddress, "Listen address (defaults to localhost only)")
+	peerCmd.Flags().Bool("allow-remote", false, "Allow binding to non-loopback addresses for controlled remote testing")
+	peerCmd.Flags().Int("max-packet-size", defaultPeerMaxPacketSize, "Maximum bytes echoed per packet or read")
+	peerCmd.Flags().Int("response-pps", defaultPeerResponsePPS, "Maximum responses per second across all protocols (0 = unlimited)")
+	peerCmd.Flags().Bool("verbose", false, "Log accepted packets and dropped oversized packets")
 }
 
-func runServer(cmd *cobra.Command, args []string) error {
+func runPeer(cmd *cobra.Command, args []string) error {
 	port, _ := cmd.Flags().GetInt("port")
 	proto, _ := cmd.Flags().GetString("proto")
+	listenAddr, _ := cmd.Flags().GetString("listen")
+	allowRemote, _ := cmd.Flags().GetBool("allow-remote")
+	maxPacketSize, _ := cmd.Flags().GetInt("max-packet-size")
+	responsePPS, _ := cmd.Flags().GetInt("response-pps")
 	verbose, _ := cmd.Flags().GetBool("verbose")
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	if port < 1 || port > 65535 {
+		return fmt.Errorf("--port must be between 1 and 65535")
+	}
+	if maxPacketSize <= 0 {
+		return fmt.Errorf("--max-packet-size must be positive")
+	}
+	if responsePPS < 0 {
+		return fmt.Errorf("--response-pps must be non-negative")
+	}
 
-	// Handle shutdown signals
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		<-sigChan
-		fmt.Println("\nShutting down...")
-		cancel()
-	}()
+	protocols, err := parsePeerProtocols(proto)
+	if err != nil {
+		return err
+	}
+	if err := validatePeerListenAddress(listenAddr, allowRemote); err != nil {
+		return err
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	limiter := NewRateLimiter(responsePPS)
 
 	var wg sync.WaitGroup
+	errCh := make(chan error, 2)
 
-	// Start UDP server
-	if proto == "udp" || proto == "udp,tcp" || proto == "tcp,udp" {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if err := runUDPServer(ctx, port, verbose); err != nil {
-				fmt.Fprintf(os.Stderr, "UDP server error: %v\n", err)
-			}
+	var udpConn *net.UDPConn
+	if protocols.udp {
+		udpConn, err = openPeerUDPListener(listenAddr, port)
+		if err != nil {
+			return err
+		}
+		defer func() {
+			_ = udpConn.Close()
 		}()
 	}
 
-	// Start TCP server
-	if proto == "tcp" || proto == "udp,tcp" || proto == "tcp,udp" {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if err := runTCPServer(ctx, port, verbose); err != nil {
-				fmt.Fprintf(os.Stderr, "TCP server error: %v\n", err)
+	var tcpListener net.Listener
+	if protocols.tcp {
+		tcpListener, err = openPeerTCPListener(listenAddr, port)
+		if err != nil {
+			if udpConn != nil {
+				_ = udpConn.Close()
 			}
+			return err
+		}
+		defer func() {
+			_ = tcpListener.Close()
 		}()
 	}
 
-	fmt.Printf("PMTUD echo server listening on port %d (%s)\n", port, proto)
+	fmt.Printf("Advanced peer-assisted MTU endpoint listening on %s (%s)\n", net.JoinHostPort(listenAddr, strconv.Itoa(port)), protocols.String())
+	fmt.Println("Designed for controlled MTU verification between hosts you manage.")
+	if allowRemote {
+		fmt.Println("Remote bind enabled. Do not expose this endpoint on the public internet.")
+	} else {
+		fmt.Println("Bound to localhost only. Use --listen <addr> --allow-remote for controlled remote testing.")
+	}
+	fmt.Printf("Use 'cidrator mtu discover <host> --proto udp|tcp --port %d' from another host.\n", port)
 	fmt.Println("Press Ctrl+C to stop")
+
+	if udpConn != nil {
+		fmt.Printf("UDP peer endpoint listening on %s\n", udpConn.LocalAddr())
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if serveErr := runUDPServer(ctx, udpConn, verbose, maxPacketSize, limiter); serveErr != nil && ctx.Err() == nil {
+				select {
+				case errCh <- fmt.Errorf("udp peer error: %w", serveErr):
+				default:
+				}
+			}
+		}()
+	}
+
+	if tcpListener != nil {
+		fmt.Printf("TCP peer endpoint listening on %s\n", tcpListener.Addr())
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if serveErr := runTCPServer(ctx, tcpListener, verbose, maxPacketSize, limiter); serveErr != nil && ctx.Err() == nil {
+				select {
+				case errCh <- fmt.Errorf("tcp peer error: %w", serveErr):
+				default:
+				}
+			}
+		}()
+	}
+
+	select {
+	case err := <-errCh:
+		stop()
+		if udpConn != nil {
+			_ = udpConn.Close()
+		}
+		if tcpListener != nil {
+			_ = tcpListener.Close()
+		}
+		wg.Wait()
+		return err
+	case <-ctx.Done():
+		fmt.Println("\nShutting down peer endpoint...")
+		if udpConn != nil {
+			_ = udpConn.Close()
+		}
+		if tcpListener != nil {
+			_ = tcpListener.Close()
+		}
+	}
 
 	wg.Wait()
 	return nil
 }
 
-// runUDPServer starts a UDP echo server
-func runUDPServer(ctx context.Context, port int, verbose bool) error {
-	addr := &net.UDPAddr{Port: port}
+func parsePeerProtocols(raw string) (peerProtocolSet, error) {
+	var protocols peerProtocolSet
+	for _, entry := range strings.Split(raw, ",") {
+		switch strings.ToLower(strings.TrimSpace(entry)) {
+		case "udp":
+			protocols.udp = true
+		case "tcp":
+			protocols.tcp = true
+		case "":
+		default:
+			return peerProtocolSet{}, fmt.Errorf("unsupported peer protocol %q: use tcp, udp, or tcp,udp", entry)
+		}
+	}
+
+	if !protocols.udp && !protocols.tcp {
+		return peerProtocolSet{}, fmt.Errorf("at least one peer protocol must be selected")
+	}
+
+	return protocols, nil
+}
+
+func validatePeerListenAddress(listenAddr string, allowRemote bool) error {
+	if listenAddr == "" {
+		return fmt.Errorf("--listen must not be empty")
+	}
+
+	ips, err := resolvePeerListenIPs(listenAddr)
+	if err != nil {
+		return fmt.Errorf("failed to resolve listen address %q: %w", listenAddr, err)
+	}
+
+	if allowRemote {
+		return nil
+	}
+
+	for _, ip := range ips {
+		if !ip.IsLoopback() {
+			return fmt.Errorf("refusing to bind peer endpoint to %q without --allow-remote; advanced mode defaults to localhost for safety", listenAddr)
+		}
+	}
+
+	return nil
+}
+
+func resolvePeerListenIPs(listenAddr string) ([]net.IP, error) {
+	if ip := net.ParseIP(listenAddr); ip != nil {
+		return []net.IP{ip}, nil
+	}
+	return net.LookupIP(listenAddr)
+}
+
+func openPeerUDPListener(listenAddr string, port int) (*net.UDPConn, error) {
+	addr, err := net.ResolveUDPAddr("udp", net.JoinHostPort(listenAddr, strconv.Itoa(port)))
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve UDP listen address: %w", err)
+	}
+
 	conn, err := net.ListenUDP("udp", addr)
 	if err != nil {
-		return fmt.Errorf("failed to start UDP server: %w", err)
+		return nil, fmt.Errorf("failed to start UDP peer endpoint: %w", err)
 	}
-	defer func() {
-		if closeErr := conn.Close(); closeErr != nil {
-			_ = closeErr
-		}
-	}()
+	return conn, nil
+}
 
-	fmt.Printf("UDP echo server listening on :%d\n", port)
+func openPeerTCPListener(listenAddr string, port int) (net.Listener, error) {
+	listener, err := net.Listen("tcp", net.JoinHostPort(listenAddr, strconv.Itoa(port)))
+	if err != nil {
+		return nil, fmt.Errorf("failed to start TCP peer endpoint: %w", err)
+	}
+	return listener, nil
+}
 
-	// Buffer for receiving packets (max jumbo frame size)
+// runUDPServer starts a UDP peer endpoint.
+func runUDPServer(ctx context.Context, conn *net.UDPConn, verbose bool, maxPacketSize int, limiter *RateLimiter) error {
 	buf := make([]byte, 65535)
 
 	for {
@@ -129,8 +298,14 @@ func runUDPServer(ctx context.Context, port int, verbose bool) error {
 		if verbose {
 			fmt.Printf("UDP: received %d bytes from %s\n", n, remoteAddr)
 		}
+		if n > maxPacketSize {
+			if verbose {
+				fmt.Printf("UDP: dropped %d-byte packet from %s (max %d)\n", n, remoteAddr, maxPacketSize)
+			}
+			continue
+		}
 
-		// Echo the packet back
+		limiter.Wait()
 		_, err = conn.WriteToUDP(buf[:n], remoteAddr)
 		if err != nil {
 			if verbose {
@@ -140,20 +315,8 @@ func runUDPServer(ctx context.Context, port int, verbose bool) error {
 	}
 }
 
-// runTCPServer starts a TCP echo server
-func runTCPServer(ctx context.Context, port int, verbose bool) error {
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
-	if err != nil {
-		return fmt.Errorf("failed to start TCP server: %w", err)
-	}
-	defer func() {
-		if closeErr := listener.Close(); closeErr != nil {
-			_ = closeErr
-		}
-	}()
-
-	fmt.Printf("TCP echo server listening on :%d\n", port)
-
+// runTCPServer starts a TCP peer endpoint.
+func runTCPServer(ctx context.Context, listener net.Listener, verbose bool, maxPacketSize int, limiter *RateLimiter) error {
 	go func() {
 		<-ctx.Done()
 		_ = listener.Close()
@@ -165,15 +328,15 @@ func runTCPServer(ctx context.Context, port int, verbose bool) error {
 			if ctx.Err() != nil {
 				return nil // Context cancelled
 			}
-			return fmt.Errorf("TCP accept error: %w", err)
+			return fmt.Errorf("TCP peer accept error: %w", err)
 		}
 
-		go handleTCPConnection(ctx, conn, verbose)
+		go handleTCPConnection(ctx, conn, verbose, maxPacketSize, limiter)
 	}
 }
 
-// handleTCPConnection handles a single TCP connection
-func handleTCPConnection(ctx context.Context, conn net.Conn, verbose bool) {
+// handleTCPConnection handles a single TCP peer connection.
+func handleTCPConnection(ctx context.Context, conn net.Conn, verbose bool, maxPacketSize int, limiter *RateLimiter) {
 	defer func() {
 		if closeErr := conn.Close(); closeErr != nil {
 			_ = closeErr
@@ -211,8 +374,14 @@ func handleTCPConnection(ctx context.Context, conn net.Conn, verbose bool) {
 		if verbose {
 			fmt.Printf("TCP: received %d bytes from %s\n", n, remoteAddr)
 		}
+		if n > maxPacketSize {
+			if verbose {
+				fmt.Printf("TCP: closing %s after %d-byte read exceeded max %d\n", remoteAddr, n, maxPacketSize)
+			}
+			return
+		}
 
-		// Echo the data back
+		limiter.Wait()
 		_, err = conn.Write(buf[:n])
 		if err != nil {
 			if verbose {

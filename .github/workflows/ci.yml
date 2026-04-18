@@ -4,7 +4,7 @@ on:
   push:
     branches: [ main, develop ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, develop ]
 
 concurrency:
   group: ${{ github.ref }}
@@ -16,7 +16,7 @@ permissions:
   actions: read
 
 env:
-  GO_VERSION: '1.22'
+  GO_VERSION: '1.24.5'
 
 jobs:
   # Single comprehensive test job
@@ -76,6 +76,9 @@ jobs:
         make build
         ./bin/cidrator version
         ./bin/cidrator --help >/dev/null
+
+    - name: Namespace MTU lab
+      run: bash ./test/labs/mtu-namespaces.sh ./bin/cidrator
 
     - name: Integration test
       run: |

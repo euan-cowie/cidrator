@@ -75,7 +75,7 @@ go mod download && go mod tidy
 - **Linux:** Install build-essential: `sudo apt-get install build-essential`
 
 **Wrong Go version:**
-- Cidrator requires Go 1.19+
+- Cidrator requires Go 1.24.5
 - Check: `go version`
 - Update: [https://golang.org/dl/](https://golang.org/dl/)
 
@@ -100,6 +100,9 @@ make test-quick
 
 # Full tests before PR
 make test
+
+# Linux namespace MTU lab
+make test-lab
 
 # Test your changes manually
 make run ARGS="cidr explain 192.168.1.0/24"

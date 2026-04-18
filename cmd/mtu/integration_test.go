@@ -60,6 +60,7 @@ func TestMTUIntegration(t *testing.T) {
 			"watch",
 			"interfaces",
 			"suggest",
+			"peer",
 		}
 
 		for _, expected := range expectedStrings {
