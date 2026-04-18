@@ -199,7 +199,10 @@ func estimatedDiscoveryProbes(opts discoveryOptions) int {
 	}
 
 	if opts.PLPMTUD {
-		plpProbes := (((opts.MaxMTU - opts.MinMTU) / 64) + 1) * 3
+		stepSize := 64
+		plpSweepProbes := (((opts.MaxMTU - opts.MinMTU) / stepSize) + 1) * 3
+		plpRefinementProbes := bits.Len(uint(stepSize)) * 3
+		plpProbes := plpSweepProbes + plpRefinementProbes
 		if plpProbes < 3 {
 			plpProbes = 3
 		}

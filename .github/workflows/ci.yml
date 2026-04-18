@@ -80,6 +80,9 @@ jobs:
     - name: Namespace MTU lab
       run: bash ./test/labs/mtu-namespaces.sh ./bin/cidrator
 
+    - name: PLPMTUD black-hole lab
+      run: bash ./test/labs/mtu-plpmtud-blackhole.sh ./bin/cidrator
+
     - name: Integration test
       run: |
         ./bin/cidrator cidr explain 192.168.1.0/24 >/dev/null

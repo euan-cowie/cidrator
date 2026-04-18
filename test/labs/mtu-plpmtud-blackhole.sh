@@ -9,29 +9,30 @@ BIN_PATH=${1:-"$ROOT_DIR/bin/cidrator"}
 EXPECTED_PMTU=${EXPECTED_PMTU:-1400}
 PEER_LINK_MTU=${PEER_LINK_MTU:-1500}
 PEER_PORT=${PEER_PORT:-4821}
+PROBE_TIMEOUT=${PROBE_TIMEOUT:-500ms}
 
-CLIENT_NS="cidrator-mtu-client-$$"
-ROUTER_NS="cidrator-mtu-router-$$"
-PEER_NS="cidrator-mtu-peer-$$"
+CLIENT_NS="cidrator-plp-client-$$"
+ROUTER_NS="cidrator-plp-router-$$"
+PEER_NS="cidrator-plp-peer-$$"
 
-CLIENT_IF="mtu-cl0"
-ROUTER_CLIENT_IF="mtu-rtcl0"
-PEER_IF="mtu-pr0"
-ROUTER_PEER_IF="mtu-rtpr0"
+CLIENT_IF="plp-cl0"
+ROUTER_CLIENT_IF="plp-rtcl0"
+PEER_IF="plp-pr0"
+ROUTER_PEER_IF="plp-rtpr0"
 
-CLIENT_IP="10.10.0.2/24"
+CLIENT_IP="10.30.0.2/24"
 CLIENT_ADDR="${CLIENT_IP%/*}"
-ROUTER_CLIENT_IP="10.10.0.1/24"
+ROUTER_CLIENT_IP="10.30.0.1/24"
 ROUTER_CLIENT_ADDR="${ROUTER_CLIENT_IP%/*}"
-PEER_IP="10.20.0.2/24"
+PEER_IP="10.40.0.2/24"
 PEER_ADDR="${PEER_IP%/*}"
-ROUTER_PEER_IP="10.20.0.1/24"
+ROUTER_PEER_IP="10.40.0.1/24"
 ROUTER_PEER_ADDR="${ROUTER_PEER_IP%/*}"
 
 WORK_DIR=$(mktemp -d)
 PEER_LOG="$WORK_DIR/peer.log"
-UDP_RESULT="$WORK_DIR/udp.json"
-TCP_RESULT="$WORK_DIR/tcp.json"
+ICMP_FAIL_LOG="$WORK_DIR/icmp-fail.log"
+PLPMTUD_RESULT="$WORK_DIR/plpmtud.json"
 PEER_PID=""
 
 require_command() {
@@ -54,9 +55,17 @@ cleanup() {
 }
 
 print_debug() {
-	echo "Namespace lab failed. Current peer log:" >&2
+	echo "PLPMTUD black-hole lab failed. Current peer log:" >&2
 	if [[ -f "$PEER_LOG" ]]; then
 		cat "$PEER_LOG" >&2 || true
+	fi
+	if [[ -f "$ICMP_FAIL_LOG" ]]; then
+		echo "ICMP discovery output:" >&2
+		cat "$ICMP_FAIL_LOG" >&2 || true
+	fi
+	if [[ -f "$PLPMTUD_RESULT" ]]; then
+		echo "PLPMTUD discovery output:" >&2
+		cat "$PLPMTUD_RESULT" >&2 || true
 	fi
 }
 
@@ -74,24 +83,47 @@ wait_for_peer() {
 	return 1
 }
 
-run_discovery() {
-	local proto=$1
-	local output=$2
+apply_icmp_blackhole() {
+	echo "Applying ICMP black-hole rules in $ROUTER_NS..."
+	sudo ip netns exec "$ROUTER_NS" iptables -A FORWARD -p icmp -j DROP
+	sudo ip netns exec "$ROUTER_NS" iptables -A OUTPUT -p icmp -d "$CLIENT_ADDR" -j DROP
+}
 
-	echo "Running $proto MTU discovery inside $CLIENT_NS..."
-	sudo ip netns exec "$CLIENT_NS" "$BIN_PATH" mtu discover "$PEER_ADDR" \
-		--proto "$proto" \
-		--port "$PEER_PORT" \
+expect_icmp_discovery_failure() {
+	echo "Running plain ICMP discovery and expecting failure..."
+	if sudo ip netns exec "$CLIENT_NS" "$BIN_PATH" mtu discover "$PEER_ADDR" \
+		--proto icmp \
 		--min 576 \
 		--max 1600 \
-		--json \
-		--quiet >"$output"
+		--timeout "$PROBE_TIMEOUT" \
+		--quiet >"$ICMP_FAIL_LOG" 2>&1; then
+		echo "plain ICMP discovery unexpectedly succeeded under ICMP black-hole conditions" >&2
+		return 1
+	fi
 
-	python3 - "$output" "$proto" "$PEER_ADDR" "$EXPECTED_PMTU" <<'PY'
+	if ! grep -Eq "no working MTU found|MTU discovery failed" "$ICMP_FAIL_LOG"; then
+		echo "plain ICMP discovery failed for an unexpected reason" >&2
+		return 1
+	fi
+}
+
+run_plpmtud_discovery() {
+	echo "Running ICMP discovery with PLPMTUD fallback..."
+	sudo ip netns exec "$CLIENT_NS" "$BIN_PATH" mtu discover "$PEER_ADDR" \
+		--proto icmp \
+		--plpmtud \
+		--plp-port "$PEER_PORT" \
+		--min 576 \
+		--max 1600 \
+		--timeout "$PROBE_TIMEOUT" \
+		--json \
+		--quiet >"$PLPMTUD_RESULT"
+
+	python3 - "$PLPMTUD_RESULT" "$PEER_ADDR" "$EXPECTED_PMTU" <<'PY'
 import json
 import sys
 
-path, expected_proto, expected_target, expected_pmtu = sys.argv[1:]
+path, expected_target, expected_pmtu = sys.argv[1:]
 expected_pmtu = int(expected_pmtu)
 
 with open(path, "r", encoding="utf-8") as handle:
@@ -100,15 +132,15 @@ with open(path, "r", encoding="utf-8") as handle:
 errors = []
 if data.get("target") != expected_target:
     errors.append(f'target={data.get("target")} expected {expected_target}')
-if data.get("protocol") != expected_proto:
-    errors.append(f'protocol={data.get("protocol")} expected {expected_proto}')
+if data.get("protocol") != "plpmtud":
+    errors.append(f'protocol={data.get("protocol")} expected plpmtud')
 if data.get("pmtu") != expected_pmtu:
     errors.append(f'pmtu={data.get("pmtu")} expected {expected_pmtu}')
 expected_mss = expected_pmtu - 40
 if data.get("mss") != expected_mss:
     errors.append(f'mss={data.get("mss")} expected {expected_mss}')
-if data.get("hops", 0) < 1:
-    errors.append(f'hops={data.get("hops")} expected >= 1')
+if data.get("hops") != 0:
+    errors.append(f'hops={data.get("hops")} expected 0')
 
 if errors:
     raise SystemExit("; ".join(errors))
@@ -128,6 +160,7 @@ require_command ip
 require_command ss
 require_command ping
 require_command python3
+require_command iptables
 
 if ! sudo -n true >/dev/null 2>&1; then
 	echo "this lab requires passwordless sudo" >&2
@@ -144,7 +177,7 @@ if (( PEER_LINK_MTU < EXPECTED_PMTU )); then
 	exit 1
 fi
 
-echo "Creating MTU namespace lab..."
+echo "Creating PLPMTUD black-hole lab..."
 sudo ip netns add "$CLIENT_NS"
 sudo ip netns add "$ROUTER_NS"
 sudo ip netns add "$PEER_NS"
@@ -179,17 +212,18 @@ echo "Starting advanced peer endpoint in $PEER_NS..."
 sudo ip netns exec "$PEER_NS" "$BIN_PATH" mtu peer \
 	--listen "$PEER_ADDR" \
 	--allow-remote \
-	--proto udp,tcp \
+	--proto udp \
 	--port "$PEER_PORT" \
 	--response-pps 0 >"$PEER_LOG" 2>&1 &
 PEER_PID=$!
 
 wait_for_peer
 
-echo "Checking basic connectivity..."
+echo "Checking baseline connectivity before black-holing ICMP..."
 sudo ip netns exec "$CLIENT_NS" ping -c 1 -W 1 "$PEER_ADDR" >/dev/null
 
-run_discovery udp "$UDP_RESULT"
-run_discovery tcp "$TCP_RESULT"
+apply_icmp_blackhole
+expect_icmp_discovery_failure
+run_plpmtud_discovery
 
-echo "Namespace MTU lab passed."
+echo "PLPMTUD black-hole lab passed."

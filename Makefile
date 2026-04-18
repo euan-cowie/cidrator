@@ -151,6 +151,12 @@ test-lab: build ## 🧪 Linux namespace MTU lab (requires Linux + passwordless s
 	@bash ./test/labs/mtu-namespaces.sh ./bin/cidrator
 	@echo "$(GREEN)✅ Namespace MTU lab passed$(NC)"
 
+.PHONY: test-lab-plpmtud
+test-lab-plpmtud: build ## 🧪 Linux ICMP black-hole PLPMTUD lab (requires Linux + passwordless sudo)
+	@echo "$(BLUE)Running PLPMTUD black-hole lab...$(NC)"
+	@bash ./test/labs/mtu-plpmtud-blackhole.sh ./bin/cidrator
+	@echo "$(GREEN)✅ PLPMTUD black-hole lab passed$(NC)"
+
 # === HELP ===
 
 .PHONY: help

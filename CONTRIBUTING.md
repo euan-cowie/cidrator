@@ -104,6 +104,9 @@ make test
 # Linux namespace MTU lab
 make test-lab
 
+# Linux ICMP black-hole PLPMTUD lab
+make test-lab-plpmtud
+
 # Test your changes manually
 make run ARGS="cidr explain 192.168.1.0/24"
 ```
