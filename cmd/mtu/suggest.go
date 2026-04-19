@@ -8,6 +8,7 @@ import (
 )
 
 var getSuggestionInterfaces = GetNetworkInterfaces
+var suggestMTUDiscovery = performMTUDiscovery
 
 // suggestCmd represents the suggest command
 var suggestCmd = &cobra.Command{
@@ -36,13 +37,14 @@ func runSuggest(cmd *cobra.Command, args []string) error {
 	if opts.HopsMode {
 		return fmt.Errorf("--hops is only supported by mtu discover")
 	}
+	opts = applySuggestProbeDefaults(cmd, opts)
 
 	jsonOutput, _ := cmd.Flags().GetBool("json")
 
 	ctx, cancel := newDiscoveryContext(opts)
 	defer cancel()
 
-	result, err := performMTUDiscovery(ctx, opts)
+	result, err := suggestMTUDiscovery(ctx, opts)
 	if err != nil {
 		pmtu, fallbackErr := fallbackSuggestionPMTU(opts)
 		if fallbackErr != nil {
@@ -61,6 +63,15 @@ func runSuggest(cmd *cobra.Command, args []string) error {
 		return outputSuggestionsJSON(result.Target, result.PMTU, suggestions)
 	}
 	return outputSuggestionsTable(result.Target, result.PMTU, suggestions)
+}
+
+func applySuggestProbeDefaults(cmd *cobra.Command, opts discoveryOptions) discoveryOptions {
+	// Suggest should work for unprivileged users without requiring them to override
+	// the shared raw-ICMP discovery default explicitly.
+	if opts.Protocol == "icmp" && !cmd.Flags().Changed("proto") {
+		opts.Protocol = "tcp"
+	}
+	return opts
 }
 
 type Suggestions struct {

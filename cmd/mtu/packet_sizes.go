@@ -16,6 +16,13 @@ func udpPacketOverhead(ipv6 bool) int {
 	return 28
 }
 
+func udpPacketSizeFromPayload(payloadSize int, ipv6 bool) int {
+	if payloadSize < 0 {
+		payloadSize = 0
+	}
+	return payloadSize + udpPacketOverhead(ipv6)
+}
+
 func payloadSizeForPacket(packetSize, overhead int) int {
 	payloadSize := packetSize - overhead
 	if payloadSize < 0 {

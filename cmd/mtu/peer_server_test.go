@@ -92,8 +92,9 @@ func TestPeerListenersAndServers(t *testing.T) {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		errCh := make(chan error, 1)
+		maxPacketSize := udpPacketSizeFromPayload(4, false)
 		go func() {
-			errCh <- runUDPServer(ctx, serverConn, false, 4, NewRateLimiter(0))
+			errCh <- runUDPServer(ctx, serverConn, false, maxPacketSize, NewRateLimiter(0))
 		}()
 
 		clientConn, err := net.DialUDP("udp", nil, serverConn.LocalAddr().(*net.UDPAddr))
@@ -121,7 +122,7 @@ func TestPeerListenersAndServers(t *testing.T) {
 			t.Fatalf("unexpected UDP echo: got %q, want %q", string(reply[:n]), string(payload))
 		}
 
-		if _, err := clientConn.Write([]byte("oversized")); err != nil {
+		if _, err := clientConn.Write([]byte("12345")); err != nil {
 			cancel()
 			t.Fatalf("failed to write oversized UDP payload: %v", err)
 		}

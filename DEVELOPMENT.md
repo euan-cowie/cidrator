@@ -114,7 +114,6 @@ cmd/
 internal/
   cidr/        CIDR implementation
   dns/         DNS implementation
-  validation/  shared validation logic
 
 test/labs/
   Linux namespace-based MTU integration labs

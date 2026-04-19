@@ -229,6 +229,7 @@ func TestRunUDPServerWithFakeConn(t *testing.T) {
 
 	t.Run("oversized packets are dropped and write errors are ignored", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
+		maxPacketSize := udpPacketSizeFromPayload(2, false)
 		conn := &fakePeerUDPConn{
 			reads: []fakeUDPReadResult{
 				{data: []byte("oversized"), addr: &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 9000}},
@@ -243,11 +244,35 @@ func TestRunUDPServerWithFakeConn(t *testing.T) {
 			writeErrs: []error{errors.New("write failed")},
 		}
 
-		if err := runUDPServer(ctx, conn, false, 4, NewRateLimiter(0)); err != nil {
+		if err := runUDPServer(ctx, conn, false, maxPacketSize, NewRateLimiter(0)); err != nil {
 			t.Fatalf("expected graceful shutdown after ignored write error, got %v", err)
 		}
 		if len(conn.writes) != 1 || string(conn.writes[0]) != "ok" {
 			t.Fatalf("expected only in-range packet to be written back, got %+v", conn.writes)
+		}
+	})
+
+	t.Run("ipv6 packet cap uses ipv6 overhead", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		maxPacketSize := udpPacketSizeFromPayload(2, true)
+		conn := &fakePeerUDPConn{
+			reads: []fakeUDPReadResult{
+				{data: []byte("abc"), addr: &net.UDPAddr{IP: net.ParseIP("2001:db8::1"), Port: 9000}},
+				{
+					data: []byte("ok"),
+					addr: &net.UDPAddr{IP: net.ParseIP("2001:db8::2"), Port: 9001},
+					after: func() {
+						cancel()
+					},
+				},
+			},
+		}
+
+		if err := runUDPServer(ctx, conn, false, maxPacketSize, NewRateLimiter(0)); err != nil {
+			t.Fatalf("expected graceful shutdown, got %v", err)
+		}
+		if len(conn.writes) != 1 || string(conn.writes[0]) != "ok" {
+			t.Fatalf("expected only in-range IPv6 packet to be written back, got %+v", conn.writes)
 		}
 	})
 }

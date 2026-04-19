@@ -380,12 +380,13 @@ func runUDPServer(ctx context.Context, conn peerUDPConn, verbose bool, maxPacket
 			return fmt.Errorf("UDP read error: %w", err)
 		}
 
+		packetSize := udpPacketSizeFromPayload(n, remoteAddr == nil || remoteAddr.IP == nil || remoteAddr.IP.To4() == nil)
 		if verbose {
-			fmt.Printf("UDP: received %d bytes from %s\n", n, remoteAddr)
+			fmt.Printf("UDP: received %d-byte payload from %s (%d-byte packet)\n", n, remoteAddr, packetSize)
 		}
-		if n > maxPacketSize {
+		if packetSize > maxPacketSize {
 			if verbose {
-				fmt.Printf("UDP: dropped %d-byte packet from %s (max %d)\n", n, remoteAddr, maxPacketSize)
+				fmt.Printf("UDP: dropped %d-byte packet from %s (payload %d, max %d)\n", packetSize, remoteAddr, n, maxPacketSize)
 			}
 			continue
 		}

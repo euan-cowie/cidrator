@@ -254,6 +254,50 @@ func TestCommandEntryPointsRejectInvalidHopsModes(t *testing.T) {
 	}
 }
 
+func TestRunSuggestProbeDefaults(t *testing.T) {
+	original := suggestMTUDiscovery
+	t.Cleanup(func() { suggestMTUDiscovery = original })
+
+	t.Run("defaults to tcp when proto flag is unchanged", func(t *testing.T) {
+		var gotOpts discoveryOptions
+		suggestMTUDiscovery = func(ctx context.Context, opts discoveryOptions) (*MTUResult, error) {
+			gotOpts = opts
+			return &MTUResult{Target: opts.Destination, Protocol: opts.Protocol, PMTU: 1500}, nil
+		}
+
+		cmd := newDiscoveryOptionsCommand()
+		_, err := captureStdout(t, func() error {
+			return runSuggest(cmd, []string{"example.com"})
+		})
+		if err != nil {
+			t.Fatalf("runSuggest returned error: %v", err)
+		}
+		if gotOpts.Protocol != "tcp" {
+			t.Fatalf("expected suggest default protocol to switch to tcp, got %q", gotOpts.Protocol)
+		}
+	})
+
+	t.Run("explicit proto is preserved", func(t *testing.T) {
+		var gotOpts discoveryOptions
+		suggestMTUDiscovery = func(ctx context.Context, opts discoveryOptions) (*MTUResult, error) {
+			gotOpts = opts
+			return &MTUResult{Target: opts.Destination, Protocol: opts.Protocol, PMTU: 1500}, nil
+		}
+
+		cmd := newDiscoveryOptionsCommand()
+		mustSetFlag(t, cmd, "proto", "icmp")
+		_, err := captureStdout(t, func() error {
+			return runSuggest(cmd, []string{"example.com"})
+		})
+		if err != nil {
+			t.Fatalf("runSuggest returned error: %v", err)
+		}
+		if gotOpts.Protocol != "icmp" {
+			t.Fatalf("expected explicit protocol to be preserved, got %q", gotOpts.Protocol)
+		}
+	})
+}
+
 func TestPerformMTUDiscoveryRejectsUnsupportedProtocol(t *testing.T) {
 	_, err := performMTUDiscovery(context.Background(), discoveryOptions{
 		Destination: "example.com",
