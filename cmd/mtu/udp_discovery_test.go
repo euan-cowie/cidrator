@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-func startLocalUDPPeer(t *testing.T, maxPacketSize int) (*net.UDPConn, func()) {
+func startLocalUDPPeer(t *testing.T, maxWirePacketSize int) (*net.UDPConn, func()) {
 	t.Helper()
 
 	conn, err := openPeerUDPListener("127.0.0.1", 0)
@@ -24,7 +24,7 @@ func startLocalUDPPeer(t *testing.T, maxPacketSize int) (*net.UDPConn, func()) {
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- runUDPServer(ctx, conn, false, maxPacketSize, NewRateLimiter(0))
+		errCh <- runUDPServer(ctx, conn, false, maxWirePacketSize, NewRateLimiter(0))
 	}()
 
 	shutdown := func() {
@@ -45,7 +45,7 @@ func startLocalUDPPeer(t *testing.T, maxPacketSize int) (*net.UDPConn, func()) {
 
 func TestUDPProberAndDiscoveryAgainstPeer(t *testing.T) {
 	maxPMTU := 1400
-	conn, shutdown := startLocalUDPPeer(t, payloadSizeForPacket(maxPMTU, udpPacketOverhead(false)))
+	conn, shutdown := startLocalUDPPeer(t, maxPMTU)
 	defer shutdown()
 
 	port := conn.LocalAddr().(*net.UDPAddr).Port
@@ -97,7 +97,7 @@ func TestUDPProberAndDiscoveryAgainstPeer(t *testing.T) {
 
 func TestDiscoveryCommandFlowsAgainstUDPPeer(t *testing.T) {
 	maxPMTU := 1400
-	conn, shutdown := startLocalUDPPeer(t, payloadSizeForPacket(maxPMTU, udpPacketOverhead(false)))
+	conn, shutdown := startLocalUDPPeer(t, maxPMTU)
 	defer shutdown()
 
 	port := conn.LocalAddr().(*net.UDPAddr).Port
@@ -164,7 +164,7 @@ func TestDiscoveryCommandFlowsAgainstUDPPeer(t *testing.T) {
 
 func TestPerformMTUDiscoveryLinearAndFallback(t *testing.T) {
 	maxPMTU := 1400
-	conn, shutdown := startLocalUDPPeer(t, payloadSizeForPacket(maxPMTU, udpPacketOverhead(false)))
+	conn, shutdown := startLocalUDPPeer(t, maxPMTU)
 	defer shutdown()
 
 	port := conn.LocalAddr().(*net.UDPAddr).Port
