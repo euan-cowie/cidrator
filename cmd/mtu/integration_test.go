@@ -60,6 +60,7 @@ func TestMTUIntegration(t *testing.T) {
 			"watch",
 			"interfaces",
 			"suggest",
+			"peer",
 		}
 
 		for _, expected := range expectedStrings {
@@ -96,7 +97,7 @@ func TestMTUIntegration(t *testing.T) {
 	})
 
 	t.Run("MTU suggest command", func(t *testing.T) {
-		cmd := exec.Command(binary, "mtu", "suggest", "localhost")
+		cmd := exec.Command(binary, "mtu", "suggest", "localhost", "--proto", "tcp")
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Errorf("mtu suggest localhost failed: %v", err)
@@ -116,7 +117,7 @@ func TestMTUIntegration(t *testing.T) {
 	})
 
 	t.Run("MTU suggest JSON", func(t *testing.T) {
-		cmd := exec.Command(binary, "mtu", "suggest", "localhost", "--json")
+		cmd := exec.Command(binary, "mtu", "suggest", "localhost", "--proto", "tcp", "--json")
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Errorf("mtu suggest localhost --json failed: %v", err)
@@ -460,10 +461,15 @@ mtu:
 		t.Fatalf("failed to write config file: %v", err)
 	}
 
-	// Test with config file (if your CLI supports it)
-	// This is a placeholder - implement based on your actual config handling
+	// Test that a config file can coexist with regular command execution.
 	binary := "../../bin/cidrator"
 	t.Run("with config file", func(t *testing.T) {
+		if _, err := os.Stat(binary); err != nil {
+			if buildErr := buildTestBinaryOnce(); buildErr != nil {
+				t.Fatalf("failed to rebuild test binary: %v", buildErr)
+			}
+		}
+
 		// Set environment variable or flag to use config file
 		// This depends on how your CLI handles configuration
 		cmd := exec.Command(binary, "mtu", "--help")

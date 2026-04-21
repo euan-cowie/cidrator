@@ -8,21 +8,11 @@ import (
 var MTUCmd = &cobra.Command{
 	Use:   "mtu",
 	Short: "Path-MTU discovery & MTU toolbox",
-	Long: `MTU subcommand provides Path-MTU discovery and MTU analysis tools.
+	Long: `Path-MTU discovery and related sizing tools.
 
-The mtu sub-command is a smart wrapper around the techniques in RFC 1191 (IPv4),
-RFC 8201 (IPv6) and RFC 4821 (PLPMTUD). It answers three everyday questions:
-• What MTU can I safely send to that host?
-• Did today's change introduce an MTU black-hole?
-• What MSS or VPN segment size should I configure?
-
-Available operations:
-- discover: Binary-search to the largest size that gets through (default)
-- watch: Re-run discover every N seconds and notify on change
-- interfaces: List local interfaces + configured MTU
-- suggest: Print TCP MSS / IPSec ESP / WireGuard frame sizes for the path
-
-All commands support both IPv4 and IPv6 with multiple probe protocols.`,
+The mtu command group covers one-off discovery, continuous monitoring, local
+interface inspection, payload sizing recommendations, and advanced peer-assisted
+verification for controlled environments.`,
 }
 
 func init() {
@@ -31,7 +21,7 @@ func init() {
 	MTUCmd.AddCommand(watchCmd)
 	MTUCmd.AddCommand(interfacesCmd)
 	MTUCmd.AddCommand(suggestCmd)
-	MTUCmd.AddCommand(serverCmd)
+	MTUCmd.AddCommand(peerCmd)
 
 	// Global flags for MTU commands
 	MTUCmd.PersistentFlags().Bool("4", false, "Force IPv4")
@@ -43,7 +33,7 @@ func init() {
 	MTUCmd.PersistentFlags().Duration("timeout", 0, "Wait per probe (default: 2s)")
 	MTUCmd.PersistentFlags().Int("ttl", 64, "Initial hop limit")
 	MTUCmd.PersistentFlags().Bool("json", false, "Structured output")
-	MTUCmd.PersistentFlags().Bool("quiet", false, "Suppress progress bar")
+	MTUCmd.PersistentFlags().Bool("quiet", false, "Suppress informational output")
 	MTUCmd.PersistentFlags().Int("pps", 10, "Rate limit probes per second")
 	MTUCmd.PersistentFlags().Bool("hops", false, "Enable hop-by-hop MTU discovery (similar to tracepath)")
 	MTUCmd.PersistentFlags().Int("max-hops", 30, "Maximum hops for hop-by-hop discovery")

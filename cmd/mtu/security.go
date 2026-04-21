@@ -106,13 +106,12 @@ func (pr *PacketRandomizer) GenerateRandomPayload(size int) []byte {
 
 // RetryThrottler manages retry attempts to avoid overwhelming networks
 type RetryThrottler struct {
-	maxRetries      int
-	baseDelay       time.Duration
-	maxDelay        time.Duration
-	backoffFactor   float64
-	currentAttempt  int
-	lastAttemptTime time.Time
-	mutex           sync.Mutex
+	maxRetries     int
+	baseDelay      time.Duration
+	maxDelay       time.Duration
+	backoffFactor  float64
+	currentAttempt int
+	mutex          sync.Mutex
 }
 
 // NewRetryThrottler creates a new retry throttler
@@ -140,7 +139,6 @@ func (rt *RetryThrottler) WaitForRetry() {
 
 	if rt.currentAttempt == 0 {
 		rt.currentAttempt++
-		rt.lastAttemptTime = time.Now()
 		return
 	}
 
@@ -158,13 +156,16 @@ func (rt *RetryThrottler) WaitForRetry() {
 		delay = rt.maxDelay
 	}
 
-	// Add jitter (±25%)
-	jitter, _ := rand.Int(rand.Reader, big.NewInt(int64(delay/2)))
-	delay = delay + time.Duration(jitter.Int64()) - delay/4
+	// Preserve the computed backoff as the minimum and only add positive jitter.
+	if jitterRange := delay / 4; jitterRange > 0 {
+		jitter, err := rand.Int(rand.Reader, big.NewInt(int64(jitterRange)+1))
+		if err == nil {
+			delay += time.Duration(jitter.Int64())
+		}
+	}
 
 	time.Sleep(delay)
 	rt.currentAttempt++
-	rt.lastAttemptTime = time.Now()
 }
 
 // Reset resets the retry counter

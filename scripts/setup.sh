@@ -1,232 +1,171 @@
-#!/bin/bash
-# Cidrator Development Setup - Simple and Reliable
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
-# Colors
-GREEN='\033[0;32m'
-BLUE='\033[0;34m'
-YELLOW='\033[0;33m'
-RED='\033[0;31m'
-BOLD='\033[1m'
-NC='\033[0m'
+install_tools=0
+skip_bootstrap=0
 
-print_header() {
-    echo -e "${BLUE}${BOLD}"
-    echo "🚀 Cidrator Development Setup"
-    echo "================================"
-    echo -e "${NC}"
+usage() {
+	cat <<'EOF'
+Usage: ./scripts/setup.sh [options]
+
+Bootstrap the local development environment for cidrator.
+
+Options:
+  --install-tools   Install optional development tools after bootstrap
+  --skip-bootstrap  Skip module download, build, and test steps
+  -h, --help        Show this help text
+EOF
 }
 
-print_success() {
-    echo -e "${GREEN}✅ $1${NC}"
+log() {
+	printf '%s\n' "$*"
 }
 
-print_info() {
-    echo -e "${BLUE}ℹ️  $1${NC}"
+warn() {
+	printf 'warning: %s\n' "$*" >&2
 }
 
-print_warning() {
-    echo -e "${YELLOW}⚠️  $1${NC}"
+die() {
+	printf 'error: %s\n' "$*" >&2
+	exit 1
 }
 
-print_error() {
-    echo -e "${RED}❌ $1${NC}"
+have_command() {
+	command -v "$1" >/dev/null 2>&1
 }
 
-check_requirements() {
-    print_info "Checking requirements..."
-
-    # Check Go
-    if ! command -v go &> /dev/null; then
-        print_error "Go is not installed!"
-        echo "Install from: https://golang.org/dl/"
-        exit 1
-    fi
-    print_success "Go $(go version | awk '{print $3}')"
-
-    # Check we're in the right place
-    if [[ ! -f "go.mod" ]] || [[ ! -f "main.go" ]]; then
-        print_error "Run this from the cidrator project root"
-        exit 1
-    fi
-    print_success "Project directory confirmed"
+require_project_root() {
+	if [[ ! -f "go.mod" ]] || [[ ! -f "main.go" ]]; then
+		die "run this script from the repository root"
+	fi
 }
 
-setup_project() {
-    print_info "Setting up project..."
+ensure_go_bin_on_path_notice() {
+	local gobin
+	gobin="$(go env GOPATH)/bin"
 
-    # Clean any previous builds
-    rm -rf bin/ 2>/dev/null || true
-
-    # Get dependencies
-    go mod download
-    go mod tidy
-    print_success "Dependencies ready"
-
-    # Build
-    make build
-    print_success "Build complete"
-
-    # Quick test
-    if make test-quick >/dev/null 2>&1; then
-        print_success "Tests passing"
-    else
-        print_warning "Some tests failed (you can fix this later)"
-    fi
+	if [[ ":$PATH:" != *":$gobin:"* ]]; then
+		warn "Go tool binaries may not be on PATH: $gobin"
+		warn "Add it to your shell profile if installed tools are not available in new shells."
+	fi
 }
 
-detect_shell() {
-    # Detect the user's shell
-    case "$SHELL" in
-        */zsh)
-            echo "zsh"
-            ;;
-        */bash)
-            echo "bash"
-            ;;
-        *)
-            # Default to zsh for modern macOS
-            echo "zsh"
-            ;;
-    esac
+bootstrap_project() {
+	log "Downloading Go modules"
+	go mod download
+	go mod tidy
+
+	log "Building cidrator"
+	make build
+
+	log "Running quick test pass"
+	make test-quick
 }
 
-check_and_fix_path() {
-    local tool_name="$1"
-    local install_path="$(go env GOPATH)/bin"
+install_golangci_lint() {
+	local gobin
+	gobin="$(go env GOPATH)/bin"
 
-    # Check if tool is already in PATH
-    if command -v "$tool_name" &> /dev/null; then
-        print_success "$tool_name is accessible in PATH"
-        return 0
-    fi
+	if have_command golangci-lint; then
+		log "golangci-lint already installed"
+		return
+	fi
 
-    # Check if tool exists in Go bin directory
-    if [[ ! -f "$install_path/$tool_name" ]]; then
-        print_error "$tool_name not found in $install_path"
-        return 1
-    fi
+	if ! have_command curl; then
+		warn "curl not found; skipping golangci-lint installation"
+		return
+	fi
 
-    print_warning "$tool_name installed but not in PATH"
+	mkdir -p "$gobin"
+	log "Installing golangci-lint"
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b "$gobin" latest
+	ensure_go_bin_on_path_notice
+}
 
-    # Auto-fix PATH issue
-    local shell_type=$(detect_shell)
-    local config_file=""
+install_pre_commit() {
+	if have_command pre-commit; then
+		log "pre-commit already installed"
+	else
+		if have_command pip3; then
+			log "Installing pre-commit with pip3"
+			pip3 install --user pre-commit
+		elif have_command pip; then
+			log "Installing pre-commit with pip"
+			pip install --user pre-commit
+		else
+			warn "pip not found; skipping pre-commit installation"
+			return
+		fi
+	fi
 
-    case "$shell_type" in
-        "zsh")
-            config_file="$HOME/.zshrc"
-            ;;
-        "bash")
-            config_file="$HOME/.bash_profile"
-            ;;
-    esac
-
-    print_info "Detected shell: $shell_type"
-    print_info "Config file: $config_file"
-
-    # Check if Go bin path is already in the config
-    local go_path_export='export PATH="$PATH:$(go env GOPATH)/bin"'
-
-    if [[ -f "$config_file" ]] && grep -q 'GOPATH.*bin' "$config_file"; then
-        print_info "Go PATH already configured in $config_file"
-    else
-        print_info "Adding Go bin directory to PATH in $config_file"
-        echo "" >> "$config_file"
-        echo "# Added by cidrator setup - Go tools" >> "$config_file"
-        echo "$go_path_export" >> "$config_file"
-        print_success "PATH updated in $config_file"
-    fi
-
-    # Test if it works now
-    if [[ ":$PATH:" == *":$install_path:"* ]] || command -v "$tool_name" &> /dev/null; then
-        print_success "$tool_name should now be accessible"
-    else
-        print_warning "You may need to restart your terminal or run:"
-        echo -e "  ${BLUE}source $config_file${NC}"
-        echo -e "  ${BLUE}export PATH=\"\$PATH:\$(go env GOPATH)/bin\"${NC}"
-    fi
+	if have_command pre-commit; then
+		log "Installing pre-commit hooks"
+		pre-commit install
+	else
+		warn "pre-commit installed but not available in the current shell"
+		warn "Reload your shell or ensure your Python user bin directory is on PATH."
+	fi
 }
 
 install_optional_tools() {
-    print_info "Installing optional development tools..."
-
-    # Install golangci-lint if not present
-    if ! command -v golangci-lint &> /dev/null; then
-        print_info "Installing golangci-lint..."
-        curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin latest
-
-        # Check and fix PATH for golangci-lint
-        check_and_fix_path "golangci-lint"
-    else
-        print_success "golangci-lint already installed"
-    fi
-
-    # Install pre-commit if python is available
-    if command -v python3 &> /dev/null || command -v python &> /dev/null; then
-        if ! command -v pre-commit &> /dev/null; then
-            print_info "Installing pre-commit..."
-            if command -v pip3 &> /dev/null; then
-                pip3 install pre-commit --user
-            elif command -v pip &> /dev/null; then
-                pip install pre-commit --user
-            fi
-            print_success "pre-commit installed"
-        else
-            print_success "pre-commit already installed"
-        fi
-
-        # Install hooks
-        if command -v pre-commit &> /dev/null; then
-            pre-commit install >/dev/null 2>&1 || true
-            print_success "pre-commit hooks installed"
-        fi
-    fi
+	log "Installing optional development tools"
+	install_golangci_lint
+	install_pre_commit
 }
 
 show_next_steps() {
-    echo
-    echo -e "${GREEN}${BOLD}🎉 Setup Complete!${NC}"
-    echo
+	cat <<'EOF'
 
-    # Verify tools are working
-    echo -e "${BOLD}🔧 Tool Status:${NC}"
-    if command -v golangci-lint &> /dev/null; then
-        echo -e "  ${GREEN}✅ golangci-lint: $(golangci-lint --version | head -1)${NC}"
-    else
-        echo -e "  ${YELLOW}⚠️  golangci-lint: Restart terminal or run: source ~/.zshrc${NC}"
-    fi
+Setup complete.
 
-    echo
-    echo -e "${BOLD}Try these commands:${NC}"
-    echo -e "  ${BLUE}./bin/cidrator cidr explain 192.168.1.0/24${NC}  # Test the CLI"
-    echo -e "  ${BLUE}make dev${NC}                                    # Quick build+test"
-    echo -e "  ${BLUE}make help${NC}                                   # Show all commands"
-    echo
-    echo -e "${BOLD}Development workflow:${NC}"
-    echo -e "  1. ${BLUE}make dev${NC}      # Build and test your changes"
-    echo -e "  2. ${BLUE}make check${NC}    # Run full quality checks"
-    echo -e "  3. ${BLUE}git commit${NC}    # Commit with conventional message"
-    echo
-    echo -e "${YELLOW}📖 See CONTRIBUTING.md for detailed guide${NC}"
-    echo
+Common commands:
+  make build
+  make test
+  make check
+  make run ARGS="cidr explain 192.168.1.0/24"
+
+Additional guidance:
+  - CONTRIBUTING.md explains contribution standards and review expectations.
+  - DEVELOPMENT.md documents local workflows and Linux MTU lab requirements.
+EOF
 }
 
-main() {
-    print_header
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+	--install-tools)
+		install_tools=1
+		;;
+	--skip-bootstrap)
+		skip_bootstrap=1
+		;;
+	-h | --help)
+		usage
+		exit 0
+		;;
+	*)
+		die "unknown option: $1"
+		;;
+	esac
+	shift
+done
 
-    check_requirements
-    setup_project
+if ! have_command go; then
+	die "Go is required. Install it from https://go.dev/dl/"
+fi
 
-    # Ask about optional tools
-    echo
-    read -p "Install optional dev tools? (golangci-lint, pre-commit) [Y/n]: " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]] || [[ -z $REPLY ]]; then
-        install_optional_tools
-    fi
+if ! have_command make; then
+	die "make is required"
+fi
 
-    show_next_steps
-}
+require_project_root
+log "Using $(go version)"
 
-main "$@"
+if [[ "$skip_bootstrap" -eq 0 ]]; then
+	bootstrap_project
+fi
+
+if [[ "$install_tools" -eq 1 ]]; then
+	install_optional_tools
+fi
+
+show_next_steps

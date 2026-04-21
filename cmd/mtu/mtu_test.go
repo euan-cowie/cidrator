@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"strings"
@@ -35,6 +36,7 @@ Available operations:
 - watch: Re-run discover every N seconds and notify on change
 - interfaces: List local interfaces + configured MTU
 - suggest: Print TCP MSS / IPSec ESP / WireGuard frame sizes for the path
+- peer: Advanced peer-assisted endpoint for controlled TCP/UDP MTU verification
 
 All commands support both IPv4 and IPv6 with multiple probe protocols.`,
 	}
@@ -44,6 +46,7 @@ All commands support both IPv4 and IPv6 with multiple probe protocols.`,
 	cmd.AddCommand(watchCmd)
 	cmd.AddCommand(interfacesCmd)
 	cmd.AddCommand(suggestCmd)
+	cmd.AddCommand(peerCmd)
 
 	// Global flags for MTU commands
 	cmd.PersistentFlags().Bool("4", false, "Force IPv4")
@@ -51,11 +54,11 @@ All commands support both IPv4 and IPv6 with multiple probe protocols.`,
 	cmd.PersistentFlags().String("proto", "icmp", "Probe method (icmp|udp|tcp)")
 	cmd.PersistentFlags().Int("min", 0, "Lower bound (IPv4 default: 576, IPv6: 1280)")
 	cmd.PersistentFlags().Int("max", 9216, "Upper bound")
-	cmd.PersistentFlags().Int("step", 16, "Granularity for linear sweep mode")
+	cmd.PersistentFlags().Int("step", 0, "Granularity for linear sweep mode (0 = binary search)")
 	cmd.PersistentFlags().Duration("timeout", 0, "Wait per probe (default: 2s)")
 	cmd.PersistentFlags().Int("ttl", 64, "Initial hop limit")
 	cmd.PersistentFlags().Bool("json", false, "Structured output")
-	cmd.PersistentFlags().Bool("quiet", false, "Suppress progress bar")
+	cmd.PersistentFlags().Bool("quiet", false, "Suppress informational output")
 	cmd.PersistentFlags().Int("pps", 10, "Rate limit probes per second")
 
 	return cmd
@@ -84,6 +87,9 @@ func captureCommandOutput(t *testing.T, cmd *cobra.Command, args []string) (stri
 	case watchCmd:
 		cmdToRun = createFreshMTUCommand()
 		args = append([]string{"watch"}, args...)
+	case peerCmd:
+		cmdToRun = createFreshMTUCommand()
+		args = append([]string{"peer"}, args...)
 	default:
 		cmdToRun = cmd
 	}
@@ -128,6 +134,84 @@ func TestMTUCommand(t *testing.T) {
 	assertTestResult(t, err, output, false, "watch")
 	assertTestResult(t, err, output, false, "interfaces")
 	assertTestResult(t, err, output, false, "suggest")
+	assertTestResult(t, err, output, false, "peer")
+}
+
+func TestPeerCommand(t *testing.T) {
+	tests := []struct {
+		name           string
+		args           []string
+		expectError    bool
+		expectedSubstr string
+	}{
+		{
+			name:           "help flag",
+			args:           []string{"--help"},
+			expectError:    false,
+			expectedSubstr: "advanced mode",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			output, err := captureCommandOutput(t, peerCmd, tt.args)
+			assertTestResult(t, err, output, tt.expectError, tt.expectedSubstr)
+		})
+	}
+}
+
+func TestServerAliasRemoved(t *testing.T) {
+	output, err := captureCommandOutput(t, MTUCmd, []string{"server", "--help"})
+	if err == nil {
+		t.Fatalf("expected unknown-command error for removed server alias, got output %q", output)
+	}
+}
+
+func TestParsePeerProtocols(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		wantUDP   bool
+		wantTCP   bool
+		expectErr bool
+	}{
+		{name: "udp only", input: "udp", wantUDP: true},
+		{name: "tcp only", input: "tcp", wantTCP: true},
+		{name: "both", input: "tcp,udp", wantUDP: true, wantTCP: true},
+		{name: "invalid", input: "icmp", expectErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			protocols, err := parsePeerProtocols(tt.input)
+			if tt.expectErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if protocols.udp != tt.wantUDP || protocols.tcp != tt.wantTCP {
+				t.Fatalf("unexpected protocol set: udp=%t tcp=%t", protocols.udp, protocols.tcp)
+			}
+		})
+	}
+}
+
+func TestValidatePeerListenAddress(t *testing.T) {
+	if err := validatePeerListenAddress("127.0.0.1", false); err != nil {
+		t.Fatalf("loopback listen address should be accepted: %v", err)
+	}
+
+	if err := validatePeerListenAddress("0.0.0.0", false); err == nil {
+		t.Fatal("expected non-loopback bind to require --allow-remote")
+	}
+
+	if err := validatePeerListenAddress("0.0.0.0", true); err != nil {
+		t.Fatalf("allow-remote should permit wildcard bind: %v", err)
+	}
 }
 
 // TestDiscoverCommand tests the discover subcommand
@@ -273,13 +357,13 @@ func TestSuggestCommand(t *testing.T) {
 		},
 		{
 			name:           "localhost suggestion",
-			args:           []string{"localhost"},
+			args:           []string{"localhost", "--proto", "tcp"},
 			expectError:    false,
 			expectedSubstr: "TCP MSS",
 		},
 		{
 			name:           "localhost json",
-			args:           []string{"localhost", "--json"},
+			args:           []string{"localhost", "--proto", "tcp", "--json"},
 			expectError:    false,
 			expectedSubstr: "", // Skip this test case - covered by TestSuggestJSONOutput
 		},
@@ -305,7 +389,7 @@ func TestSuggestJSONOutput(t *testing.T) {
 		}
 	}
 
-	cmd := exec.Command(binary, "mtu", "suggest", "localhost", "--json")
+	cmd := exec.Command(binary, "mtu", "suggest", "localhost", "--proto", "tcp", "--json")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("suggest command failed: %v, output: %s", err, string(output))
@@ -444,6 +528,156 @@ func TestOutputJSON(t *testing.T) {
 
 	if parsed.Target != result.Target {
 		t.Errorf("JSON target mismatch: got %q, want %q", parsed.Target, result.Target)
+	}
+}
+
+func TestOutputHopJSONUsesMilliseconds(t *testing.T) {
+	result := &HopMTUResult{
+		Target:       "test.example.com",
+		Protocol:     "icmp",
+		MaxProbeSize: 1500,
+		FinalPMTU:    1480,
+		ElapsedMS:    250,
+		Hops: []*HopInfo{
+			{
+				Hop:  1,
+				Addr: net.ParseIP("192.0.2.1"),
+				MTU:  1500,
+				RTT:  50 * time.Millisecond,
+			},
+			{
+				Hop:     2,
+				RTT:     2 * time.Second,
+				Timeout: true,
+			},
+		},
+	}
+
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := outputHopJSON(result)
+
+	_ = w.Close()
+	os.Stdout = oldStdout
+
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(r)
+	output := strings.TrimSpace(buf.String())
+
+	if err != nil {
+		t.Fatalf("outputHopJSON failed: %v", err)
+	}
+
+	var parsed struct {
+		Hops []struct {
+			Addr    string  `json:"addr"`
+			RTT     float64 `json:"rtt"`
+			Timeout bool    `json:"timeout"`
+		} `json:"hops"`
+	}
+
+	if err := json.Unmarshal([]byte(output), &parsed); err != nil {
+		t.Fatalf("outputHopJSON produced invalid JSON: %v\nOutput: %s", err, output)
+	}
+
+	if len(parsed.Hops) != 2 {
+		t.Fatalf("expected 2 hops, got %d", len(parsed.Hops))
+	}
+
+	if parsed.Hops[0].Addr != "192.0.2.1" {
+		t.Errorf("unexpected hop address: got %q", parsed.Hops[0].Addr)
+	}
+
+	if parsed.Hops[0].RTT != 50 {
+		t.Errorf("expected first hop RTT in milliseconds, got %v", parsed.Hops[0].RTT)
+	}
+
+	if parsed.Hops[1].RTT != 2000 {
+		t.Errorf("expected timeout hop RTT in milliseconds, got %v", parsed.Hops[1].RTT)
+	}
+}
+
+func TestDiscoveryTimeoutBudgetRespectsPerProbeTimeout(t *testing.T) {
+	defaultBudget := discoveryTimeoutBudget(discoveryOptions{
+		MinMTU:  576,
+		MaxMTU:  9216,
+		Timeout: 2 * time.Second,
+	})
+	if defaultBudget != 60*time.Second {
+		t.Fatalf("expected default binary-search budget to retain the 60s floor, got %v", defaultBudget)
+	}
+
+	scaledBudget := discoveryTimeoutBudget(discoveryOptions{
+		MinMTU:  576,
+		MaxMTU:  9216,
+		Timeout: 5 * time.Second,
+	})
+	if scaledBudget != 75*time.Second {
+		t.Fatalf("expected scaled budget to account for longer probe timeouts, got %v", scaledBudget)
+	}
+
+	pacedBudget := discoveryTimeoutBudget(discoveryOptions{
+		Protocol:         "icmp",
+		MinMTU:           576,
+		MaxMTU:           650,
+		Step:             1,
+		Timeout:          10 * time.Millisecond,
+		PacketsPerSecond: 1,
+	})
+	if pacedBudget != 80*time.Second {
+		t.Fatalf("expected paced budget to account for ICMP rate limiting, got %v", pacedBudget)
+	}
+}
+
+func TestFallbackSuggestionPMTUUsesLoopbackMTUWithoutMaxClamp(t *testing.T) {
+	mock := NewMockInterfaceDetector()
+	old := getSuggestionInterfaces
+	getSuggestionInterfaces = mock.GetNetworkInterfaces
+	defer func() {
+		getSuggestionInterfaces = old
+	}()
+
+	pmtu, err := fallbackSuggestionPMTU(discoveryOptions{
+		Destination: "127.0.0.1",
+		MinMTU:      576,
+		MaxMTU:      9216,
+	})
+	if err != nil {
+		t.Fatalf("fallbackSuggestionPMTU returned error: %v", err)
+	}
+
+	if pmtu != 16384 {
+		t.Fatalf("fallbackSuggestionPMTU returned %d, want 16384", pmtu)
+	}
+}
+
+func TestNewWatchDropErrorSilencesCobraErrorsForJSON(t *testing.T) {
+	root := &cobra.Command{Use: "cidrator"}
+	watch := &cobra.Command{
+		Use: "watch",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return newWatchDropError(cmd, 1500, 1400, true)
+		},
+	}
+	root.AddCommand(watch)
+	root.SetArgs([]string{"watch"})
+
+	var stderr bytes.Buffer
+	root.SetErr(&stderr)
+
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("expected watch drop error")
+	}
+
+	if !strings.Contains(err.Error(), "pmtu dropped from 1500 to 1400") {
+		t.Fatalf("unexpected error text: %v", err)
+	}
+
+	if stderr.Len() != 0 {
+		t.Fatalf("expected Cobra stderr to stay empty for JSON mode, got %q", stderr.String())
 	}
 }
 

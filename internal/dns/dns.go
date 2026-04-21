@@ -11,6 +11,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+var resolverDialContext = func(ctx context.Context, network, address string, timeout time.Duration) (net.Conn, error) {
+	d := net.Dialer{Timeout: timeout}
+	return d.DialContext(ctx, network, address)
+}
+
 // Record types supported by the lookup command
 const (
 	RecordTypeA     = "A"
@@ -29,6 +34,21 @@ type LookupOptions struct {
 	Timeout    time.Duration // Query timeout
 	PreferIPv6 bool          // Prefer IPv6 results when available
 }
+
+type dnsResolver interface {
+	LookupIP(ctx context.Context, network, host string) ([]net.IP, error)
+	LookupMX(ctx context.Context, name string) ([]*net.MX, error)
+	LookupTXT(ctx context.Context, name string) ([]string, error)
+	LookupCNAME(ctx context.Context, host string) (string, error)
+	LookupNS(ctx context.Context, name string) ([]*net.NS, error)
+}
+
+type reverseResolver interface {
+	LookupAddr(ctx context.Context, addr string) ([]string, error)
+}
+
+var resolverFactory = createResolver
+var reverseLookupResolver reverseResolver = net.DefaultResolver
 
 // DefaultLookupOptions returns sensible defaults for DNS lookups
 func DefaultLookupOptions() LookupOptions {
@@ -148,7 +168,7 @@ func Lookup(domain string, opts LookupOptions) (*DNSResult, error) {
 	domain = strings.TrimSuffix(domain, ".")
 
 	// Create resolver
-	resolver := createResolver(opts)
+	resolver := resolverFactory(opts)
 
 	ctx, cancel := context.WithTimeout(context.Background(), opts.Timeout)
 	defer cancel()
@@ -208,7 +228,7 @@ func ReverseLookup(ip string, timeout time.Duration) (*ReverseResult, error) {
 
 	start := time.Now()
 
-	names, err := net.DefaultResolver.LookupAddr(ctx, ip)
+	names, err := reverseLookupResolver.LookupAddr(ctx, ip)
 	if err != nil {
 		return nil, NewDNSError("reverse", ip, err)
 	}
@@ -227,7 +247,7 @@ func ReverseLookup(ip string, timeout time.Duration) (*ReverseResult, error) {
 }
 
 // createResolver creates a DNS resolver with the given options
-func createResolver(opts LookupOptions) *net.Resolver {
+func createResolver(opts LookupOptions) dnsResolver {
 	if opts.Server == "" {
 		return net.DefaultResolver
 	}
@@ -241,14 +261,13 @@ func createResolver(opts LookupOptions) *net.Resolver {
 	return &net.Resolver{
 		PreferGo: true,
 		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-			d := net.Dialer{Timeout: opts.Timeout}
-			return d.DialContext(ctx, "udp", server)
+			return resolverDialContext(ctx, "udp", server, opts.Timeout)
 		},
 	}
 }
 
 // lookupA performs an A record lookup
-func lookupA(ctx context.Context, resolver *net.Resolver, domain string, result *DNSResult) error {
+func lookupA(ctx context.Context, resolver dnsResolver, domain string, result *DNSResult) error {
 	ips, err := resolver.LookupIP(ctx, "ip4", domain)
 	if err != nil {
 		return NewDNSError("lookup", domain, err)
@@ -264,7 +283,7 @@ func lookupA(ctx context.Context, resolver *net.Resolver, domain string, result 
 }
 
 // lookupAAAA performs an AAAA record lookup
-func lookupAAAA(ctx context.Context, resolver *net.Resolver, domain string, result *DNSResult) error {
+func lookupAAAA(ctx context.Context, resolver dnsResolver, domain string, result *DNSResult) error {
 	ips, err := resolver.LookupIP(ctx, "ip6", domain)
 	if err != nil {
 		return NewDNSError("lookup", domain, err)
@@ -280,7 +299,7 @@ func lookupAAAA(ctx context.Context, resolver *net.Resolver, domain string, resu
 }
 
 // lookupMX performs an MX record lookup
-func lookupMX(ctx context.Context, resolver *net.Resolver, domain string, result *DNSResult) error {
+func lookupMX(ctx context.Context, resolver dnsResolver, domain string, result *DNSResult) error {
 	mxs, err := resolver.LookupMX(ctx, domain)
 	if err != nil {
 		return NewDNSError("lookup", domain, err)
@@ -297,7 +316,7 @@ func lookupMX(ctx context.Context, resolver *net.Resolver, domain string, result
 }
 
 // lookupTXT performs a TXT record lookup
-func lookupTXT(ctx context.Context, resolver *net.Resolver, domain string, result *DNSResult) error {
+func lookupTXT(ctx context.Context, resolver dnsResolver, domain string, result *DNSResult) error {
 	txts, err := resolver.LookupTXT(ctx, domain)
 	if err != nil {
 		return NewDNSError("lookup", domain, err)
@@ -313,7 +332,7 @@ func lookupTXT(ctx context.Context, resolver *net.Resolver, domain string, resul
 }
 
 // lookupCNAME performs a CNAME record lookup
-func lookupCNAME(ctx context.Context, resolver *net.Resolver, domain string, result *DNSResult) error {
+func lookupCNAME(ctx context.Context, resolver dnsResolver, domain string, result *DNSResult) error {
 	cname, err := resolver.LookupCNAME(ctx, domain)
 	if err != nil {
 		return NewDNSError("lookup", domain, err)
@@ -327,7 +346,7 @@ func lookupCNAME(ctx context.Context, resolver *net.Resolver, domain string, res
 }
 
 // lookupNS performs an NS record lookup
-func lookupNS(ctx context.Context, resolver *net.Resolver, domain string, result *DNSResult) error {
+func lookupNS(ctx context.Context, resolver dnsResolver, domain string, result *DNSResult) error {
 	nss, err := resolver.LookupNS(ctx, domain)
 	if err != nil {
 		return NewDNSError("lookup", domain, err)
@@ -343,7 +362,7 @@ func lookupNS(ctx context.Context, resolver *net.Resolver, domain string, result
 }
 
 // lookupAll performs all supported record lookups
-func lookupAll(ctx context.Context, resolver *net.Resolver, domain string, result *DNSResult) error {
+func lookupAll(ctx context.Context, resolver dnsResolver, domain string, result *DNSResult) error {
 	// A records
 	if ips, err := resolver.LookupIP(ctx, "ip4", domain); err == nil {
 		for _, ip := range ips {

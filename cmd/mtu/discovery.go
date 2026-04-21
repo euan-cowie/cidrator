@@ -3,7 +3,9 @@ package mtu
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
+	"os"
 	"time"
 
 	"golang.org/x/net/icmp"
@@ -48,6 +50,84 @@ type HopMTUResult struct {
 	ElapsedMS    int        `json:"elapsed_ms"`
 }
 
+type hopPacketConn interface {
+	Prepare(ttl int) error
+	ReadFrom([]byte) (int, net.Addr, error)
+}
+
+type ipv4HopPacketConn struct {
+	conn *ipv4.PacketConn
+}
+
+var setIPv4HopTTL = func(conn *ipv4.PacketConn, ttl int) error {
+	return conn.SetTTL(ttl)
+}
+
+var setIPv4HopControlMessage = func(conn *ipv4.PacketConn, on bool) error {
+	return conn.SetControlMessage(ipv4.FlagTTL, on)
+}
+
+var readIPv4HopPacket = func(conn *ipv4.PacketConn, buf []byte) (int, net.Addr, error) {
+	n, _, addr, err := conn.ReadFrom(buf)
+	return n, addr, err
+}
+
+func (p *ipv4HopPacketConn) Prepare(ttl int) error {
+	if err := setIPv4HopTTL(p.conn, ttl); err != nil {
+		return fmt.Errorf("failed to set TTL: %w", err)
+	}
+	if err := setIPv4HopControlMessage(p.conn, true); err != nil {
+		return fmt.Errorf("failed to set control message: %w", err)
+	}
+	return nil
+}
+
+func (p *ipv4HopPacketConn) ReadFrom(buf []byte) (int, net.Addr, error) {
+	return readIPv4HopPacket(p.conn, buf)
+}
+
+type ipv6HopPacketConn struct {
+	conn *ipv6.PacketConn
+}
+
+var setIPv6HopLimit = func(conn *ipv6.PacketConn, ttl int) error {
+	return conn.SetHopLimit(ttl)
+}
+
+var setIPv6HopControlMessage = func(conn *ipv6.PacketConn, on bool) error {
+	return conn.SetControlMessage(ipv6.FlagHopLimit, on)
+}
+
+var readIPv6HopPacket = func(conn *ipv6.PacketConn, buf []byte) (int, net.Addr, error) {
+	n, _, addr, err := conn.ReadFrom(buf)
+	return n, addr, err
+}
+
+func (p *ipv6HopPacketConn) Prepare(ttl int) error {
+	if err := setIPv6HopLimit(p.conn, ttl); err != nil {
+		return fmt.Errorf("failed to set hop limit: %w", err)
+	}
+	if err := setIPv6HopControlMessage(p.conn, true); err != nil {
+		return fmt.Errorf("failed to set control message: %w", err)
+	}
+	return nil
+}
+
+func (p *ipv6HopPacketConn) ReadFrom(buf []byte) (int, net.Addr, error) {
+	return readIPv6HopPacket(p.conn, buf)
+}
+
+var lookupIPAddrs = net.LookupIP
+
+var listenDiscoverPacket = net.ListenPacket
+
+var defaultHopPacketConnFactory = func(conn net.PacketConn, ipv6Mode bool) (hopPacketConn, error) {
+	if ipv6Mode {
+		return &ipv6HopPacketConn{conn: ipv6.NewPacketConn(conn)}, nil
+	}
+	return &ipv4HopPacketConn{conn: ipv4.NewPacketConn(conn)}, nil
+}
+
 // MTUDiscoverer handles Path-MTU discovery
 type MTUDiscoverer struct {
 	target       string
@@ -60,18 +140,23 @@ type MTUDiscoverer struct {
 	targetAddr   net.Addr
 	security     *SecurityConfig
 	icmpListener *ICMPListener // Optional ICMP listener for fail-fast detection
+	progressOut  io.Writer
+	warningOut   io.Writer
+	hopFactory   func(net.PacketConn, bool) (hopPacketConn, error)
 }
 
 // NewMTUDiscoverer creates a new MTU discovery instance
 func NewMTUDiscoverer(target string, ipv6 bool, protocol string, port int, timeout time.Duration, ttl int) (*MTUDiscoverer, error) {
 	d := &MTUDiscoverer{
-		target:   target,
-		ipv6:     ipv6,
-		protocol: protocol,
-		port:     port,
-		timeout:  timeout,
-		ttl:      ttl,
-		security: NewSecurityConfig(10), // Default 10 pps
+		target:     target,
+		ipv6:       ipv6,
+		protocol:   protocol,
+		port:       port,
+		timeout:    timeout,
+		ttl:        ttl,
+		security:   NewSecurityConfig(10), // Default 10 pps
+		warningOut: os.Stderr,
+		hopFactory: defaultHopPacketConnFactory,
 	}
 
 	// For non-ICMP protocols, we don't need to setup raw sockets immediately
@@ -106,7 +191,7 @@ func (d *MTUDiscoverer) resolveTarget() error {
 	}
 
 	// Resolve hostname
-	addrs, err := net.LookupIP(d.target)
+	addrs, err := lookupIPAddrs(d.target)
 	if err != nil {
 		return err
 	}
@@ -139,7 +224,7 @@ func (d *MTUDiscoverer) setupConnection() error {
 		network = "ip4:icmp"
 	}
 
-	conn, err := net.ListenPacket(network, "")
+	conn, err := listenDiscoverPacket(network, "")
 	if err != nil {
 		return err
 	}
@@ -149,7 +234,7 @@ func (d *MTUDiscoverer) setupConnection() error {
 	// Set DF flag for MTU discovery using proper socket options
 	if err := d.setDontFragmentSocket(); err != nil {
 		// Don't fail completely, but warn user
-		fmt.Printf("Warning: Failed to set DF flag via socket options: %v\n", err)
+		d.warningf("Warning: Failed to set DF flag via socket options: %v\n", err)
 	}
 
 	return nil
@@ -163,11 +248,30 @@ func (d *MTUDiscoverer) Close() error {
 	return nil
 }
 
+func (d *MTUDiscoverer) progressf(format string, args ...any) {
+	if d.progressOut == nil {
+		return
+	}
+	_, _ = fmt.Fprintf(d.progressOut, format, args...)
+}
+
+func (d *MTUDiscoverer) warningf(format string, args ...any) {
+	out := d.warningOut
+	if out == nil {
+		out = os.Stderr
+	}
+	_, _ = fmt.Fprintf(out, format, args...)
+}
+
 // SetICMPListener attaches an ICMP listener for fail-fast fragmentation error detection.
 // When set, the discoverer can receive ICMP "Fragmentation Needed" errors asynchronously
 // instead of relying solely on probe timeouts.
 func (d *MTUDiscoverer) SetICMPListener(listener *ICMPListener) {
 	d.icmpListener = listener
+}
+
+func (d *MTUDiscoverer) SetProgressWriter(w io.Writer) {
+	d.progressOut = w
 }
 
 // DiscoverPMTU performs binary search to find the Path-MTU using the specified protocol
@@ -262,17 +366,11 @@ func (d *MTUDiscoverer) DiscoverPMTULinear(ctx context.Context, minMTU, maxMTU, 
 
 	elapsed := time.Since(start)
 
-	// Calculate MSS based on IP version
-	mss := lastWorking - 40 // IPv4 headers (20) + TCP headers (20)
-	if d.ipv6 {
-		mss = lastWorking - 60 // IPv6 headers (40) + TCP headers (20)
-	}
-
 	return &MTUResult{
 		Target:    d.target,
 		Protocol:  d.protocol,
 		PMTU:      lastWorking,
-		MSS:       mss,
+		MSS:       tcpMSSForMTU(lastWorking, d.ipv6),
 		Hops:      probeCount,
 		ElapsedMS: int(elapsed.Milliseconds()),
 	}, nil
@@ -316,9 +414,9 @@ func (d *MTUDiscoverer) DiscoverHopByHopMTU(ctx context.Context, maxTTL int, max
 			hopMTU := d.discoverMTUToHop(ctx, ttl, 576, 1600)
 			if hopMTU > 0 {
 				hop.MTU = hopMTU
-				fmt.Printf("Hop %d: %s (Path MTU to this hop: %d bytes)\n", ttl, hop.Addr, hopMTU)
+				d.progressf("Hop %d: %s (Path MTU to this hop: %d bytes)\n", ttl, hop.Addr, hopMTU)
 			} else {
-				fmt.Printf("Hop %d: %s (MTU discovery failed)\n", ttl, hop.Addr)
+				d.progressf("Hop %d: %s (MTU discovery failed)\n", ttl, hop.Addr)
 			}
 		}
 
@@ -331,7 +429,7 @@ func (d *MTUDiscoverer) DiscoverHopByHopMTU(ctx context.Context, maxTTL int, max
 			if err == nil {
 				finalPMTU = result.PMTU
 				hop.MTU = result.PMTU
-				fmt.Printf("Reached destination at hop %d with PMTU: %d bytes\n", ttl, result.PMTU)
+				d.progressf("Reached destination at hop %d with PMTU: %d bytes\n", ttl, result.PMTU)
 			}
 			break
 		}
@@ -428,17 +526,11 @@ func (d *MTUDiscoverer) discoverICMP(ctx context.Context, minMTU, maxMTU int) (*
 
 	elapsed := time.Since(start)
 
-	// Calculate MSS based on IP version
-	mss := lastWorking - 40 // IPv4 headers (20) + TCP headers (20)
-	if d.ipv6 {
-		mss = lastWorking - 60 // IPv6 headers (40) + TCP headers (20)
-	}
-
 	return &MTUResult{
 		Target:    d.target,
 		Protocol:  d.protocol,
 		PMTU:      lastWorking,
-		MSS:       mss,
+		MSS:       tcpMSSForMTU(lastWorking, d.ipv6),
 		Hops:      hops,
 		ElapsedMS: int(elapsed.Milliseconds()),
 	}, nil
@@ -582,34 +674,21 @@ func (d *MTUDiscoverer) probeHop(ctx context.Context, ttl int, size int) *HopInf
 		Hop: ttl,
 	}
 
-	// Create packet connection with TTL control
-	var pconn interface{}
-	if d.ipv6 {
-		p := ipv6.NewPacketConn(d.conn)
-		if err := p.SetHopLimit(ttl); err != nil {
-			hop.Error = fmt.Sprintf("failed to set hop limit: %v", err)
-			hop.RTT = time.Since(start)
-			return hop
-		}
-		if err := p.SetControlMessage(ipv6.FlagHopLimit, true); err != nil {
-			hop.Error = fmt.Sprintf("failed to set control message: %v", err)
-			hop.RTT = time.Since(start)
-			return hop
-		}
-		pconn = p
-	} else {
-		p := ipv4.NewPacketConn(d.conn)
-		if err := p.SetTTL(ttl); err != nil {
-			hop.Error = fmt.Sprintf("failed to set TTL: %v", err)
-			hop.RTT = time.Since(start)
-			return hop
-		}
-		if err := p.SetControlMessage(ipv4.FlagTTL, true); err != nil {
-			hop.Error = fmt.Sprintf("failed to set control message: %v", err)
-			hop.RTT = time.Since(start)
-			return hop
-		}
-		pconn = p
+	hopFactory := d.hopFactory
+	if hopFactory == nil {
+		hopFactory = defaultHopPacketConnFactory
+	}
+
+	pconn, err := hopFactory(d.conn, d.ipv6)
+	if err != nil {
+		hop.Error = fmt.Sprintf("failed to create hop packet conn: %v", err)
+		hop.RTT = time.Since(start)
+		return hop
+	}
+	if err := pconn.Prepare(ttl); err != nil {
+		hop.Error = err.Error()
+		hop.RTT = time.Since(start)
+		return hop
 	}
 
 	// Create ICMP packet with DF flag
@@ -641,17 +720,7 @@ func (d *MTUDiscoverer) probeHop(ctx context.Context, ttl int, size int) *HopInf
 	var n int
 	var addr net.Addr
 
-	if d.ipv6 {
-		p := pconn.(*ipv6.PacketConn)
-		var cm *ipv6.ControlMessage
-		n, cm, addr, err = p.ReadFrom(response)
-		_ = cm // For now, we don't use the control message info
-	} else {
-		p := pconn.(*ipv4.PacketConn)
-		var cm *ipv4.ControlMessage
-		n, cm, addr, err = p.ReadFrom(response)
-		_ = cm // For now, we don't use the control message info
-	}
+	n, addr, err = pconn.ReadFrom(response)
 
 	hop.RTT = time.Since(start)
 

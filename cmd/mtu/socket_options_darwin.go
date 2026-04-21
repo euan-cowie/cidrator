@@ -10,6 +10,14 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+const tcpciOptTimestamps = 0x00000001
+
+var darwinSetsockoptInt = unix.SetsockoptInt
+
+var darwinGetsockoptInt = unix.GetsockoptInt
+
+var darwinGetsockoptTCPConnectionInfo = unix.GetsockoptTCPConnectionInfo
+
 // setIPv4DontFragment sets DF flag for IPv4 on Darwin
 func setIPv4DontFragment(conn net.Conn) error {
 	var rawConn syscall.RawConn
@@ -34,7 +42,7 @@ func setIPv4DontFragment(conn net.Conn) error {
 	err = rawConn.Control(func(f uintptr) {
 		fd := int(f)
 		// Darwin uses IP_DONTFRAG
-		sockErr = unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_DONTFRAG, 1)
+		sockErr = darwinSetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_DONTFRAG, 1)
 	})
 	if err != nil {
 		return fmt.Errorf("failed to control raw conn: %w", err)
@@ -65,7 +73,7 @@ func setIPv6DontFragment(conn net.Conn) error {
 	var sockErr error
 	err = rawConn.Control(func(f uintptr) {
 		fd := int(f)
-		sockErr = unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_DONTFRAG, 1)
+		sockErr = darwinSetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_DONTFRAG, 1)
 	})
 	if err != nil {
 		return fmt.Errorf("failed to control raw conn: %w", err)
@@ -76,7 +84,7 @@ func setIPv6DontFragment(conn net.Conn) error {
 // setTCPMSS forces the kernel to cap the segment size for this socket.
 // This helps bypass TSO/GSO by forcing the stack to packetize at this specific size.
 func setTCPMSS(fd uintptr, mss int) error {
-	return unix.SetsockoptInt(int(fd), unix.IPPROTO_TCP, unix.TCP_MAXSEG, mss)
+	return darwinSetsockoptInt(int(fd), unix.IPPROTO_TCP, unix.TCP_MAXSEG, mss)
 }
 
 // getTCPMSS retrieves the current effective MSS for the connection.
@@ -100,7 +108,7 @@ func getTCPMSS(conn net.Conn) (int, error) {
 	var sockErr error
 	err = rawConn.Control(func(f uintptr) {
 		fd := int(f)
-		mss, sockErr = unix.GetsockoptInt(fd, unix.IPPROTO_TCP, unix.TCP_MAXSEG)
+		mss, sockErr = darwinGetsockoptInt(fd, unix.IPPROTO_TCP, unix.TCP_MAXSEG)
 	})
 
 	if err != nil {
@@ -110,4 +118,40 @@ func getTCPMSS(conn net.Conn) (int, error) {
 		return 0, sockErr
 	}
 	return mss, nil
+}
+
+// tcpTimestampsEnabled reports whether the connection negotiated TCP timestamps.
+func tcpTimestampsEnabled(conn net.Conn) (bool, error) {
+	var rawConn syscall.RawConn
+	var err error
+
+	switch c := conn.(type) {
+	case *net.TCPConn:
+		rawConn, err = c.SyscallConn()
+	default:
+		return false, fmt.Errorf("unsupported connection type for TCP info: %T", conn)
+	}
+
+	if err != nil {
+		return false, fmt.Errorf("failed to get syscall conn: %w", err)
+	}
+
+	var enabled bool
+	var sockErr error
+	err = rawConn.Control(func(f uintptr) {
+		info, infoErr := darwinGetsockoptTCPConnectionInfo(int(f), unix.IPPROTO_TCP, unix.TCP_CONNECTION_INFO)
+		if infoErr != nil {
+			sockErr = infoErr
+			return
+		}
+		enabled = info.Options&tcpciOptTimestamps != 0
+	})
+
+	if err != nil {
+		return false, fmt.Errorf("failed to control raw conn: %w", err)
+	}
+	if sockErr != nil {
+		return false, sockErr
+	}
+	return enabled, nil
 }

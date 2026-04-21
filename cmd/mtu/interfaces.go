@@ -35,17 +35,7 @@ func runInterfaces(cmd *cobra.Command, args []string) error {
 }
 
 func outputInterfacesJSON(result *InterfaceResult) error {
-	fmt.Printf("{\n  \"interfaces\": [\n")
-	for i, iface := range result.Interfaces {
-		comma := ""
-		if i < len(result.Interfaces)-1 {
-			comma = ","
-		}
-		fmt.Printf("    {\"name\": \"%s\", \"mtu\": %d, \"type\": \"%s\"}%s\n",
-			iface.Name, iface.MTU, iface.Type, comma)
-	}
-	fmt.Printf("  ]\n}\n")
-	return nil
+	return writePrettyJSON(result)
 }
 
 func outputInterfacesTable(result *InterfaceResult) error {

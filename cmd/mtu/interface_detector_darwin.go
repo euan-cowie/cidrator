@@ -22,13 +22,21 @@ var ifTypeMap = map[int]string{
 	0xf9: "tunnel", // IFT_UTUN
 }
 
+var fetchDarwinRouteRIB = func() ([]byte, error) {
+	return route.FetchRIB(0, route.RIBTypeInterface, 0)
+}
+
+var parseDarwinRouteRIB = func(rib []byte) ([]route.Message, error) {
+	return route.ParseRIB(route.RIBTypeInterface, rib)
+}
+
 // getInterfaceTypeFromOS gets interface type using BSD route information (Darwin/macOS specific)
 func getInterfaceTypeFromOS(ifName string) (string, bool) {
-	rib, err := route.FetchRIB(0, route.RIBTypeInterface, 0)
+	rib, err := fetchDarwinRouteRIB()
 	if err != nil {
 		return "", false
 	}
-	msgs, err := route.ParseRIB(route.RIBTypeInterface, rib)
+	msgs, err := parseDarwinRouteRIB(rib)
 	if err != nil {
 		return "", false
 	}

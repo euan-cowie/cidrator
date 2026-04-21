@@ -16,9 +16,10 @@ type PLPMTUDOptions struct {
 
 // PLPMTUDProber implements RFC 4821 style PLPMTUD
 type PLPMTUDProber struct {
-	target  string
-	ipv6    bool
-	options PLPMTUDOptions
+	target   string
+	ipv6     bool
+	options  PLPMTUDOptions
+	probeUDP func(ctx context.Context, size int) bool
 }
 
 // NewPLPMTUDProber creates a new PLPMTUD prober
@@ -35,62 +36,110 @@ func NewPLPMTUDProber(target string, ipv6 bool, options PLPMTUDOptions) *PLPMTUD
 func (p *PLPMTUDProber) DiscoverPMTUWithPLPMTUD(ctx context.Context, minMTU, maxMTU int) (*MTUResult, error) {
 	start := time.Now()
 
-	// Start with a conservative estimate
-	confirmedMTU := minMTU
+	stepSize := p.options.StepSize
+	if stepSize <= 0 {
+		stepSize = 64
+	}
 
-	// Gradually increase packet size in-band
-	for size := minMTU; size <= maxMTU; size += p.options.StepSize {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		default:
+	confirmedMTU := 0
+	firstFailedMTU := maxMTU + 1
+
+	// Coarse sweep to find the first failing region.
+	for size := minMTU; size <= maxMTU; size += stepSize {
+		success, err := p.confirmPacketSize(ctx, size)
+		if err != nil {
+			return nil, err
 		}
-
-		// Test this size multiple times for reliability
-		successCount := 0
-		for attempt := 0; attempt < p.options.MaxProbes; attempt++ {
-			if p.testPacketSize(ctx, size) {
-				successCount++
-			}
-		}
-
-		// Require majority success for confirmation
-		if successCount > p.options.MaxProbes/2 {
+		if success {
 			confirmedMTU = size
 		} else {
-			// Failed at this size, stop probing
+			firstFailedMTU = size
 			break
 		}
+		if err := waitForNextPLPProbe(ctx); err != nil {
+			return nil, err
+		}
+	}
 
-		// Add some delay between probes to be network-friendly
-		time.Sleep(time.Millisecond * 100)
+	if confirmedMTU == 0 {
+		return nil, fmt.Errorf("no working PLPMTUD size found in range %d-%d", minMTU, maxMTU)
+	}
+
+	refineUpperBound := maxMTU
+	if firstFailedMTU <= maxMTU {
+		refineUpperBound = firstFailedMTU - 1
+	}
+
+	// Refine inside the last successful coarse bucket so PLPMTUD returns an exact PMTU.
+	low := confirmedMTU + 1
+	high := refineUpperBound
+	for low <= high {
+		mid := low + (high-low)/2
+		success, err := p.confirmPacketSize(ctx, mid)
+		if err != nil {
+			return nil, err
+		}
+		if success {
+			confirmedMTU = mid
+			low = mid + 1
+		} else {
+			high = mid - 1
+		}
 	}
 
 	elapsed := time.Since(start)
-
-	// Calculate MSS
-	mss := confirmedMTU - 40 // Default to IPv4
-	if p.ipv6 {
-		mss = confirmedMTU - 60
-	}
 
 	return &MTUResult{
 		Target:    p.target,
 		Protocol:  "plpmtud",
 		PMTU:      confirmedMTU,
-		MSS:       mss,
+		MSS:       tcpMSSForMTU(confirmedMTU, p.ipv6),
 		Hops:      0, // Not applicable for PLPMTUD
 		ElapsedMS: int(elapsed.Milliseconds()),
 	}, nil
 }
 
+func (p *PLPMTUDProber) confirmPacketSize(ctx context.Context, size int) (bool, error) {
+	maxProbes := p.options.MaxProbes
+	if maxProbes <= 0 {
+		maxProbes = 1
+	}
+
+	successCount := 0
+	for attempt := 0; attempt < maxProbes; attempt++ {
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		default:
+		}
+
+		if p.testPacketSize(ctx, size) {
+			successCount++
+		}
+	}
+
+	return successCount > maxProbes/2, nil
+}
+
+func waitForNextPLPProbe(ctx context.Context) error {
+	timer := time.NewTimer(100 * time.Millisecond)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
 // testPacketSize tests if a packet of given size can be sent successfully
 func (p *PLPMTUDProber) testPacketSize(ctx context.Context, size int) bool {
-	// In a real implementation, this would send application-layer data
-	// to a willing echo server on the specified PLP port
-	// For now, we'll simulate using UDP probes
+	if p.probeUDP != nil {
+		return p.probeUDP(ctx, size)
+	}
 
-	prober, err := NewUDPProber(p.target, p.ipv6, 0, p.options.BaseTimeout)
+	prober, err := NewUDPProber(p.target, p.ipv6, p.options.PLPPort, p.options.BaseTimeout)
 	if err != nil {
 		return false
 	}

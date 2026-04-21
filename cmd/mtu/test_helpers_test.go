@@ -76,6 +76,8 @@ func (h *TestHelper) CaptureCommandOutput(cmd *cobra.Command, args []string) (st
 		args = append([]string{"suggest"}, args...)
 	case watchCmd:
 		args = append([]string{"watch"}, args...)
+	case peerCmd:
+		args = append([]string{"peer"}, args...)
 	default:
 		cmdToRun = cmd
 	}
@@ -120,6 +122,7 @@ func (h *TestHelper) createFreshMTUCommand() *cobra.Command {
 	cmd.AddCommand(watchCmd)
 	cmd.AddCommand(interfacesCmd)
 	cmd.AddCommand(suggestCmd)
+	cmd.AddCommand(peerCmd)
 
 	// Global flags for MTU commands
 	cmd.PersistentFlags().Bool("4", false, "Force IPv4")
@@ -127,11 +130,11 @@ func (h *TestHelper) createFreshMTUCommand() *cobra.Command {
 	cmd.PersistentFlags().String("proto", "icmp", "Probe method (icmp|udp|tcp)")
 	cmd.PersistentFlags().Int("min", 0, "Lower bound (IPv4 default: 576, IPv6: 1280)")
 	cmd.PersistentFlags().Int("max", 9216, "Upper bound")
-	cmd.PersistentFlags().Int("step", 16, "Granularity for linear sweep mode")
+	cmd.PersistentFlags().Int("step", 0, "Granularity for linear sweep mode (0 = binary search)")
 	cmd.PersistentFlags().Duration("timeout", 0, "Wait per probe (default: 2s)")
 	cmd.PersistentFlags().Int("ttl", 64, "Initial hop limit")
 	cmd.PersistentFlags().Bool("json", false, "Structured output")
-	cmd.PersistentFlags().Bool("quiet", false, "Suppress progress bar")
+	cmd.PersistentFlags().Bool("quiet", false, "Suppress informational output")
 	cmd.PersistentFlags().Int("pps", 10, "Rate limit probes per second")
 
 	return cmd

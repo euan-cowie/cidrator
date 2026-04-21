@@ -2,11 +2,14 @@ package dns
 
 import (
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/euan-cowie/cidrator/internal/dns"
 	"github.com/spf13/cobra"
 )
+
+var dnsReverseLookup = dns.ReverseLookup
 
 // reverseCmd represents the dns reverse command
 var reverseCmd = &cobra.Command{
@@ -40,48 +43,48 @@ func runReverse(cmd *cobra.Command, args []string) error {
 	timeout, _ := cmd.Flags().GetDuration("timeout")
 
 	// Perform reverse lookup
-	result, err := dns.ReverseLookup(ip, timeout)
+	result, err := dnsReverseLookup(ip, timeout)
 	if err != nil {
 		return err
 	}
 
 	// Output result
-	return outputReverseResult(result, format)
+	return outputReverseResult(cmd.OutOrStdout(), result, format)
 }
 
-func outputReverseResult(result *dns.ReverseResult, format string) error {
+func outputReverseResult(w io.Writer, result *dns.ReverseResult, format string) error {
 	switch format {
 	case "json":
 		output, err := result.ToJSON()
 		if err != nil {
 			return fmt.Errorf("failed to generate JSON: %v", err)
 		}
-		fmt.Println(output)
+		_, _ = fmt.Fprintln(w, output)
 	case "yaml":
 		output, err := result.ToYAML()
 		if err != nil {
 			return fmt.Errorf("failed to generate YAML: %v", err)
 		}
-		fmt.Print(output)
+		_, _ = fmt.Fprint(w, output)
 	case "table":
-		outputReverseTable(result)
+		outputReverseTable(w, result)
 	default:
 		return fmt.Errorf("unsupported output format: %s", format)
 	}
 	return nil
 }
 
-func outputReverseTable(result *dns.ReverseResult) {
-	fmt.Printf("IP: %s\n", result.IP)
-	fmt.Printf("Query Time: %v\n\n", result.QueryTime.Round(time.Millisecond))
+func outputReverseTable(w io.Writer, result *dns.ReverseResult) {
+	_, _ = fmt.Fprintf(w, "IP: %s\n", result.IP)
+	_, _ = fmt.Fprintf(w, "Query Time: %v\n\n", result.QueryTime.Round(time.Millisecond))
 
 	if len(result.Hostnames) == 0 {
-		fmt.Println("No PTR records found.")
+		_, _ = fmt.Fprintln(w, "No PTR records found.")
 		return
 	}
 
-	fmt.Println("Hostnames:")
+	_, _ = fmt.Fprintln(w, "Hostnames:")
 	for _, hostname := range result.Hostnames {
-		fmt.Printf("  - %s\n", hostname)
+		_, _ = fmt.Fprintf(w, "  - %s\n", hostname)
 	}
 }

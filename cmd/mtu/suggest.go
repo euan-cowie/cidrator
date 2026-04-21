@@ -2,9 +2,13 @@ package mtu
 
 import (
 	"fmt"
+	"net"
 
 	"github.com/spf13/cobra"
 )
+
+var getSuggestionInterfaces = GetNetworkInterfaces
+var suggestMTUDiscovery = performMTUDiscovery
 
 // suggestCmd represents the suggest command
 var suggestCmd = &cobra.Command{
@@ -14,31 +18,60 @@ var suggestCmd = &cobra.Command{
 discovered Path-MTU to the destination.
 
 Calculations:
-• TCP MSS = PMTU - 40 (IPv4) or - 48 (IPv6)
+• TCP MSS = PMTU - 40 (IPv4) or - 60 (IPv6)
 • WireGuard payload = PMTU - 60
 • IPSec ESP + UDP-encap = PMTU - (ESP + UDP + IP)
 
 Examples:
-  cidrator mtu suggest example.com
-  cidrator mtu suggest 8.8.8.8 --json`,
+  cidrator mtu suggest example.com --proto tcp
+  cidrator mtu suggest 8.8.8.8 --proto tcp --json`,
 	Args: cobra.ExactArgs(1),
 	RunE: runSuggest,
 }
 
 func runSuggest(cmd *cobra.Command, args []string) error {
-	destination := args[0]
+	opts, err := readDiscoveryOptions(cmd, args[0])
+	if err != nil {
+		return err
+	}
+	if opts.HopsMode {
+		return fmt.Errorf("--hops is only supported by mtu discover")
+	}
+	opts = applySuggestProbeDefaults(cmd, opts)
+
 	jsonOutput, _ := cmd.Flags().GetBool("json")
 
-	// TODO: First discover MTU, then calculate suggestions
-	// For now, use a reasonable default
-	pmtu := 1472 // Placeholder - should be discovered
+	ctx, cancel := newDiscoveryContext(opts)
+	defer cancel()
 
-	suggestions := calculateSuggestions(pmtu)
+	result, err := suggestMTUDiscovery(ctx, opts)
+	if err != nil {
+		pmtu, fallbackErr := fallbackSuggestionPMTU(opts)
+		if fallbackErr != nil {
+			return fmt.Errorf("MTU discovery failed: %w", err)
+		}
+		result = &MTUResult{
+			Target:   opts.Destination,
+			Protocol: opts.Protocol,
+			PMTU:     pmtu,
+		}
+	}
+
+	suggestions := calculateSuggestions(result.PMTU)
 
 	if jsonOutput {
-		return outputSuggestionsJSON(destination, pmtu, suggestions)
+		return outputSuggestionsJSON(result.Target, result.PMTU, suggestions)
 	}
-	return outputSuggestionsTable(destination, pmtu, suggestions)
+	return outputSuggestionsTable(result.Target, result.PMTU, suggestions)
+}
+
+func applySuggestProbeDefaults(cmd *cobra.Command, opts discoveryOptions) discoveryOptions {
+	// Suggest should work for unprivileged users without requiring them to override
+	// the shared raw-ICMP discovery default explicitly.
+	if opts.Protocol == "icmp" && !cmd.Flags().Changed("proto") {
+		opts.Protocol = "tcp"
+	}
+	return opts
 }
 
 type Suggestions struct {
@@ -68,22 +101,15 @@ func calculateSuggestions(pmtu int) Suggestions {
 }
 
 func outputSuggestionsJSON(destination string, pmtu int, suggestions Suggestions) error {
-	fmt.Printf("{\n")
-	fmt.Printf("  \"target\": \"%s\",\n", destination)
-	fmt.Printf("  \"pmtu\": %d,\n", pmtu)
-	fmt.Printf("  \"suggestions\": {\n")
-	fmt.Printf("    \"tcp_mss_ipv4\": %d,\n", suggestions.TCPMSSv4)
-	fmt.Printf("    \"tcp_mss_ipv6\": %d,\n", suggestions.TCPMSSv6)
-	fmt.Printf("    \"tcp_mss_ipv4_timestamps\": %d,\n", suggestions.TCPMSSv4Timestamps)
-	fmt.Printf("    \"tcp_mss_ipv6_timestamps\": %d,\n", suggestions.TCPMSSv6Timestamps)
-	fmt.Printf("    \"wireguard_payload\": %d,\n", suggestions.WireGuardPayload)
-	fmt.Printf("    \"ipsec_esp_udp\": %d,\n", suggestions.IPSecESPUDP)
-	fmt.Printf("    \"gre_payload\": %d,\n", suggestions.GREPayload)
-	fmt.Printf("    \"vxlan_payload\": %d,\n", suggestions.VXLANPayload)
-	fmt.Printf("    \"mpls_1label\": %d\n", suggestions.MPLSPayload)
-	fmt.Printf("  }\n")
-	fmt.Printf("}\n")
-	return nil
+	return writePrettyJSON(struct {
+		Target      string      `json:"target"`
+		PMTU        int         `json:"pmtu"`
+		Suggestions Suggestions `json:"suggestions"`
+	}{
+		Target:      destination,
+		PMTU:        pmtu,
+		Suggestions: suggestions,
+	})
 }
 
 func outputSuggestionsTable(destination string, pmtu int, suggestions Suggestions) error {
@@ -98,4 +124,56 @@ func outputSuggestionsTable(destination string, pmtu int, suggestions Suggestion
 	fmt.Printf("VXLAN payload:               %d\n", suggestions.VXLANPayload)
 	fmt.Printf("MPLS (1 label):              %d\n", suggestions.MPLSPayload)
 	return nil
+}
+
+func fallbackSuggestionPMTU(opts discoveryOptions) (int, error) {
+	ips, err := resolveTargetIPs(opts.Destination)
+	if err != nil {
+		return 0, err
+	}
+
+	isLoopback := false
+	for _, ip := range ips {
+		if !ip.IsLoopback() {
+			continue
+		}
+		if opts.IPv6 && ip.To4() != nil {
+			continue
+		}
+		if !opts.IPv6 && ip.To4() == nil {
+			continue
+		}
+		isLoopback = true
+		break
+	}
+	if !isLoopback {
+		return 0, fmt.Errorf("%s does not resolve to a loopback address", opts.Destination)
+	}
+
+	result, err := getSuggestionInterfaces()
+	if err != nil {
+		return 0, err
+	}
+
+	loopbackMTU := 0
+	for _, iface := range result.Interfaces {
+		if iface.Type == "loopback" && iface.MTU > loopbackMTU {
+			loopbackMTU = iface.MTU
+		}
+	}
+	if loopbackMTU == 0 {
+		return 0, fmt.Errorf("no loopback interface MTU available")
+	}
+	if loopbackMTU < opts.MinMTU {
+		return 0, fmt.Errorf("loopback MTU %d is below the configured minimum %d", loopbackMTU, opts.MinMTU)
+	}
+
+	return loopbackMTU, nil
+}
+
+func resolveTargetIPs(target string) ([]net.IP, error) {
+	if ip := net.ParseIP(target); ip != nil {
+		return []net.IP{ip}, nil
+	}
+	return lookupIPAddrs(target)
 }

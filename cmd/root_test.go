@@ -30,4 +30,16 @@ func TestRootCommand(t *testing.T) {
 	if rootCmd.Short == "" {
 		t.Error("rootCmd.Short should not be empty")
 	}
+
+	commandNames := make(map[string]bool)
+	for _, subcommand := range rootCmd.Commands() {
+		commandNames[subcommand.Name()] = true
+	}
+
+	if commandNames["scan"] {
+		t.Error("scan should not be exposed on the root command")
+	}
+	if commandNames["fw"] {
+		t.Error("fw should not be exposed on the root command")
+	}
 }

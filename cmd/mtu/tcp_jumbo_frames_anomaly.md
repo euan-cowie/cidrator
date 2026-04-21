@@ -50,7 +50,7 @@ We performed a verified test to demonstrate this behavior despite implementing R
 
 **Setup:**
 - **Server:** AWS EC2 Instance (`t3.micro`, Amazon Linux 2023) running in `eu-west-1`.
-  - Command: `mtu server --port 4821 --proto udp,tcp`
+  - Command: `mtu peer --port 4821 --proto udp,tcp --listen 0.0.0.0 --allow-remote`
 - **Client:** Local Mac Accessing via Public Internet.
   - Fix Applied: `TCP_MAXSEG` socket option set to match probe size.
   - Command: `mtu discover 54.154.159.28 --port 4821 --proto tcp`

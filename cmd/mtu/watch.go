@@ -1,9 +1,7 @@
 package mtu
 
 import (
-	"context"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -26,43 +24,25 @@ Examples:
 func init() {
 	watchCmd.Flags().Duration("interval", 10*time.Second, "Interval between checks")
 	watchCmd.Flags().Bool("mss-only", false, "Only alert on MSS changes")
-	watchCmd.Flags().Bool("syslog", false, "Send alerts to syslog")
 }
 
 func runWatch(cmd *cobra.Command, args []string) error {
-	destination := args[0]
+	opts, err := readDiscoveryOptions(cmd, args[0])
+	if err != nil {
+		return err
+	}
+	if opts.HopsMode {
+		return fmt.Errorf("--hops is only supported by mtu discover")
+	}
+
 	interval, _ := cmd.Flags().GetDuration("interval")
 	mssOnly, _ := cmd.Flags().GetBool("mss-only")
-	useSyslog, _ := cmd.Flags().GetBool("syslog")
 	jsonOutput, _ := cmd.Flags().GetBool("json")
 
-	// Get other flags for MTU discovery
-	ipv6, _ := cmd.Flags().GetBool("6")
-	proto, _ := cmd.Flags().GetString("proto")
-	timeout, _ := cmd.Flags().GetDuration("timeout")
-	if timeout == 0 {
-		timeout = 2 * time.Second
-	}
-	ttl, _ := cmd.Flags().GetInt("ttl")
-	minMTU, _ := cmd.Flags().GetInt("min")
-	maxMTU, _ := cmd.Flags().GetInt("max")
-
-	// Set default min MTU based on IP version
-	if minMTU == 0 {
-		if ipv6 {
-			minMTU = 1280
-		} else {
-			minMTU = 576
-		}
-	}
-
 	if !jsonOutput {
-		fmt.Printf("Watching MTU to %s every %v...\n", destination, interval)
+		fmt.Printf("Watching MTU to %s every %v...\n", opts.Destination, interval)
 		if mssOnly {
 			fmt.Printf("Will only alert on MSS changes\n")
-		}
-		if useSyslog {
-			fmt.Printf("Alerts will be sent to syslog\n")
 		}
 		fmt.Printf("Press Ctrl+C to stop\n\n")
 	}
@@ -71,13 +51,17 @@ func runWatch(cmd *cobra.Command, args []string) error {
 
 	for {
 		// Perform MTU discovery
-		result, err := performMTUDiscovery(destination, ipv6, proto, timeout, ttl, minMTU, maxMTU)
+		ctx, cancel := newDiscoveryContext(opts)
+		result, err := performMTUDiscovery(ctx, opts)
+		cancel()
 
 		timestamp := time.Now()
 
 		if err != nil {
 			if jsonOutput {
-				outputWatchErrorJSON(timestamp, destination, err)
+				if jsonErr := outputWatchErrorJSON(timestamp, opts.Destination, err); jsonErr != nil {
+					return jsonErr
+				}
 			} else {
 				fmt.Printf("[%s] Error: %v\n", timestamp.Format("15:04:05"), err)
 			}
@@ -88,7 +72,9 @@ func runWatch(cmd *cobra.Command, args []string) error {
 
 			// Output based on mode
 			if jsonOutput {
-				outputWatchResultJSON(timestamp, result, changed, mssChanged)
+				if jsonErr := outputWatchResultJSON(timestamp, result, changed, mssChanged); jsonErr != nil {
+					return jsonErr
+				}
 			} else {
 				symbol := " "
 				if changed {
@@ -108,20 +94,12 @@ func runWatch(cmd *cobra.Command, args []string) error {
 
 			// Handle alerts
 			if changed && lastResult != nil {
-				if useSyslog {
-					// TODO: Implement syslog integration
-					// For now, just log to stderr as placeholder
-					fmt.Fprintf(os.Stderr, "MTU change detected for %s: %d\n", destination, result.PMTU)
-				}
 				if mssOnly && !mssChanged {
 					// Skip alert if only monitoring MSS changes
 				} else {
 					// Non-zero exit if PMTU drops as specified in requirements
 					if result.PMTU < lastResult.PMTU {
-						if !jsonOutput {
-							fmt.Printf("ERROR: PMTU dropped from %d to %d\n", lastResult.PMTU, result.PMTU)
-						}
-						os.Exit(1)
+						return newWatchDropError(cmd, lastResult.PMTU, result.PMTU, jsonOutput)
 					}
 				}
 			}
@@ -133,32 +111,40 @@ func runWatch(cmd *cobra.Command, args []string) error {
 	}
 }
 
-func performMTUDiscovery(destination string, ipv6 bool, proto string, timeout time.Duration, ttl, minMTU, maxMTU int) (*MTUResult, error) {
-	// Create context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	// Create MTU discoverer
-	discoverer, err := NewMTUDiscoverer(destination, ipv6, proto, 0, timeout, ttl)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create discoverer: %w", err)
+func newWatchDropError(cmd *cobra.Command, previousPMTU, currentPMTU int, jsonOutput bool) error {
+	cmd.SilenceUsage = true
+	if jsonOutput {
+		cmd.SilenceErrors = true
 	}
-	defer func() {
-		if closeErr := discoverer.Close(); closeErr != nil {
-			fmt.Printf("Warning: failed to close discoverer: %v\n", closeErr)
-		}
-	}()
-
-	// Perform MTU discovery
-	return discoverer.DiscoverPMTU(ctx, minMTU, maxMTU)
+	return fmt.Errorf("pmtu dropped from %d to %d", previousPMTU, currentPMTU)
 }
 
-func outputWatchErrorJSON(timestamp time.Time, destination string, err error) {
-	fmt.Printf("{\"timestamp\":\"%s\",\"target\":\"%s\",\"error\":\"%v\"}\n",
-		timestamp.Format(time.RFC3339), destination, err)
+func outputWatchErrorJSON(timestamp time.Time, destination string, err error) error {
+	return writeJSONLine(struct {
+		Timestamp string `json:"timestamp"`
+		Target    string `json:"target"`
+		Error     string `json:"error"`
+	}{
+		Timestamp: timestamp.Format(time.RFC3339),
+		Target:    destination,
+		Error:     err.Error(),
+	})
 }
 
-func outputWatchResultJSON(timestamp time.Time, result *MTUResult, changed, mssChanged bool) {
-	fmt.Printf("{\"timestamp\":\"%s\",\"target\":\"%s\",\"pmtu\":%d,\"mss\":%d,\"changed\":%t,\"mss_changed\":%t}\n",
-		timestamp.Format(time.RFC3339), result.Target, result.PMTU, result.MSS, changed, mssChanged)
+func outputWatchResultJSON(timestamp time.Time, result *MTUResult, changed, mssChanged bool) error {
+	return writeJSONLine(struct {
+		Timestamp  string `json:"timestamp"`
+		Target     string `json:"target"`
+		PMTU       int    `json:"pmtu"`
+		MSS        int    `json:"mss"`
+		Changed    bool   `json:"changed"`
+		MSSChanged bool   `json:"mss_changed"`
+	}{
+		Timestamp:  timestamp.Format(time.RFC3339),
+		Target:     result.Target,
+		PMTU:       result.PMTU,
+		MSS:        result.MSS,
+		Changed:    changed,
+		MSSChanged: mssChanged,
+	})
 }

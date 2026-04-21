@@ -93,14 +93,8 @@ func NewUDPProber(target string, ipv6 bool, port int, timeout time.Duration) (*U
 func (p *TCPProber) ProbeTCP(ctx context.Context, size int) *ProbeResult {
 	start := time.Now()
 
-	// Calculate target MSS to bypass TSO/GSO
-	// MSS = ProbeSize - IPHeader - TCPHeader
-	ipHeader := 20
-	if p.ipv6 {
-		ipHeader = 40
-	}
-	tcpHeader := 20
-	targetMSS := size - ipHeader - tcpHeader
+	// Calculate target MSS to bypass TSO/GSO.
+	targetMSS := payloadSizeForPacket(size, tcpPacketOverhead(p.ipv6))
 
 	// Safety check for minimum TCP MSS
 	if targetMSS < 1 {
@@ -137,19 +131,30 @@ func (p *TCPProber) ProbeTCP(ctx context.Context, size int) *ProbeResult {
 		}
 	}()
 
+	payloadSize := targetMSS
+
 	// --- MSS Validation: Detect TSO/GSO False Positives ---
 	// If we asked for 9000 bytes (Jumbo), but the kernel negotiated 1460 (Standard),
 	// any large Write() will be segmented. This is a false positive for PMTUD.
+	//
+	// Allow the common 12-byte TCP timestamp option in the negotiated MSS. In that
+	// case we still write only the negotiated MSS so the kernel emits a single
+	// full-size segment on the wire instead of splitting the payload.
 	actualMSS, err := getTCPMSS(conn)
 	if err == nil && actualMSS > 0 {
-		// STRICT CHECK: The payload must NOT exceed the negotiated MSS.
-		// Tolerance removed to align TCP results exactly with UDP/Wire limits.
-		if actualMSS < targetMSS {
+		timestampsEnabled, timestampErr := tcpTimestampsEnabled(conn)
+		if timestampErr != nil {
+			timestampsEnabled = false
+		}
+
+		var ok bool
+		payloadSize, ok = tcpProbePayloadSize(size, actualMSS, timestampsEnabled, p.ipv6)
+		if !ok {
 			return &ProbeResult{
 				Size:    size,
 				Success: false,
 				RTT:     time.Since(start),
-				Error:   fmt.Errorf("false positive detected: negotiated MSS %d < target %d (TSO/GSO active)", actualMSS, targetMSS),
+				Error:   fmt.Errorf("false positive detected: negotiated MSS %d is too small for packet size %d", actualMSS, size),
 			}
 		}
 	}
@@ -172,16 +177,6 @@ func (p *TCPProber) ProbeTCP(ctx context.Context, size int) *ProbeResult {
 		}
 	}
 
-	// Calculate payload size accounting for IP + TCP headers
-	headerSize := 40 // IPv4 (20) + TCP (20)
-	if p.ipv6 {
-		headerSize = 60 // IPv6 (40) + TCP (20)
-	}
-	payloadSize := size - headerSize
-	if payloadSize < 0 {
-		payloadSize = 0
-	}
-
 	// Send payload data to actually test the path MTU
 	payload := make([]byte, payloadSize)
 	for i := range payload {
@@ -198,7 +193,7 @@ func (p *TCPProber) ProbeTCP(ctx context.Context, size int) *ProbeResult {
 		}
 	}
 
-	// Wait for any response (the echo server should respond)
+	// Wait for any response from the peer-assisted endpoint.
 	// A timeout or error indicates the packet was too large
 	response := make([]byte, 1)
 	_, err = conn.Read(response)
@@ -258,8 +253,8 @@ func (p *UDPProber) ProbeUDP(ctx context.Context, size int) *ProbeResult {
 		}
 	}
 
-	// Create payload of specified size
-	payload := make([]byte, size)
+	// Probe size refers to the full packet size on the wire, not just UDP payload.
+	payload := make([]byte, payloadSizeForPacket(size, udpPacketOverhead(p.ipv6)))
 	for i := range payload {
 		payload[i] = byte(i % 256)
 	}
@@ -338,7 +333,7 @@ func (p *TCPProber) DiscoverPMTUTCP(ctx context.Context, minMTU, maxMTU int) (*M
 		Target:    p.target,
 		Protocol:  "tcp",
 		PMTU:      lastWorking,
-		MSS:       lastWorking - 40, // TCP/IP headers
+		MSS:       tcpMSSForMTU(lastWorking, p.ipv6),
 		Hops:      hops,
 		ElapsedMS: int(elapsed.Milliseconds()),
 	}, nil
@@ -384,7 +379,7 @@ func (p *UDPProber) DiscoverPMTUUDP(ctx context.Context, minMTU, maxMTU int) (*M
 		Target:    p.target,
 		Protocol:  "udp",
 		PMTU:      lastWorking,
-		MSS:       lastWorking - 28, // UDP/IP headers
+		MSS:       tcpMSSForMTU(lastWorking, p.ipv6),
 		Hops:      hops,
 		ElapsedMS: int(elapsed.Milliseconds()),
 	}, nil

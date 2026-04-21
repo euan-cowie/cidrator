@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net"
 	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 // Linux constants for MTU discovery
@@ -14,7 +16,14 @@ const (
 	IP_PMTUDISC_DO    = 2
 	IPV6_MTU_DISCOVER = 23
 	IPV6_PMTUDISC_DO  = 2
+	tcpiOptTimestamps = 1
 )
+
+var linuxSetsockoptInt = syscall.SetsockoptInt
+
+var linuxGetsockoptInt = syscall.GetsockoptInt
+
+var linuxGetsockoptTCPInfo = unix.GetsockoptTCPInfo
 
 // setIPv4DontFragment sets DF flag for IPv4 on Linux
 func setIPv4DontFragment(conn net.Conn) error {
@@ -40,7 +49,7 @@ func setIPv4DontFragment(conn net.Conn) error {
 	err = rawConn.Control(func(f uintptr) {
 		fd := int(f)
 		// Linux uses IP_MTU_DISCOVER with IP_PMTUDISC_DO
-		sockErr = syscall.SetsockoptInt(fd, syscall.IPPROTO_IP, IP_MTU_DISCOVER, IP_PMTUDISC_DO)
+		sockErr = linuxSetsockoptInt(fd, syscall.IPPROTO_IP, IP_MTU_DISCOVER, IP_PMTUDISC_DO)
 	})
 	if err != nil {
 		return fmt.Errorf("failed to control raw conn: %w", err)
@@ -72,7 +81,7 @@ func setIPv6DontFragment(conn net.Conn) error {
 	err = rawConn.Control(func(f uintptr) {
 		fd := int(f)
 		// Linux uses IPV6_MTU_DISCOVER
-		sockErr = syscall.SetsockoptInt(fd, syscall.IPPROTO_IPV6, IPV6_MTU_DISCOVER, IPV6_PMTUDISC_DO)
+		sockErr = linuxSetsockoptInt(fd, syscall.IPPROTO_IPV6, IPV6_MTU_DISCOVER, IPV6_PMTUDISC_DO)
 	})
 	if err != nil {
 		return fmt.Errorf("failed to control raw conn: %w", err)
@@ -84,7 +93,7 @@ func setIPv6DontFragment(conn net.Conn) error {
 // This helps bypass TSO/GSO by forcing the stack to packetize at this specific size.
 func setTCPMSS(fd uintptr, mss int) error {
 	// TCP_MAXSEG is option 2 on most *nix systems
-	return syscall.SetsockoptInt(int(fd), syscall.IPPROTO_TCP, syscall.TCP_MAXSEG, mss)
+	return linuxSetsockoptInt(int(fd), syscall.IPPROTO_TCP, syscall.TCP_MAXSEG, mss)
 }
 
 // getTCPMSS retrieves the current effective MSS for the connection.
@@ -109,7 +118,7 @@ func getTCPMSS(conn net.Conn) (int, error) {
 	err = rawConn.Control(func(f uintptr) {
 		fd := int(f)
 		// On Linux, reading TCP_MAXSEG returns the current effective MSS
-		mss, sockErr = syscall.GetsockoptInt(fd, syscall.IPPROTO_TCP, syscall.TCP_MAXSEG)
+		mss, sockErr = linuxGetsockoptInt(fd, syscall.IPPROTO_TCP, syscall.TCP_MAXSEG)
 	})
 
 	if err != nil {
@@ -119,4 +128,40 @@ func getTCPMSS(conn net.Conn) (int, error) {
 		return 0, sockErr
 	}
 	return mss, nil
+}
+
+// tcpTimestampsEnabled reports whether the connection negotiated TCP timestamps.
+func tcpTimestampsEnabled(conn net.Conn) (bool, error) {
+	var rawConn syscall.RawConn
+	var err error
+
+	switch c := conn.(type) {
+	case *net.TCPConn:
+		rawConn, err = c.SyscallConn()
+	default:
+		return false, fmt.Errorf("unsupported connection type for TCP info: %T", conn)
+	}
+
+	if err != nil {
+		return false, fmt.Errorf("failed to get syscall conn: %w", err)
+	}
+
+	var enabled bool
+	var sockErr error
+	err = rawConn.Control(func(f uintptr) {
+		info, infoErr := linuxGetsockoptTCPInfo(int(f), unix.IPPROTO_TCP, unix.TCP_INFO)
+		if infoErr != nil {
+			sockErr = infoErr
+			return
+		}
+		enabled = info.Options&tcpiOptTimestamps != 0
+	})
+
+	if err != nil {
+		return false, fmt.Errorf("failed to control raw conn: %w", err)
+	}
+	if sockErr != nil {
+		return false, sockErr
+	}
+	return enabled, nil
 }
