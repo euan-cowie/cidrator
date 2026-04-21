@@ -197,6 +197,65 @@ func TestEstimatedPLPMTUDPauseBudget(t *testing.T) {
 	}
 }
 
+func TestPositiveIntBitLen(t *testing.T) {
+	tests := []struct {
+		name string
+		in   int
+		want int
+	}{
+		{name: "zero", in: 0, want: 0},
+		{name: "negative", in: -1, want: 0},
+		{name: "one", in: 1, want: 1},
+		{name: "power of two", in: 64, want: 7},
+		{name: "non power of two", in: 129, want: 8},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := positiveIntBitLen(tt.in); got != tt.want {
+				t.Fatalf("positiveIntBitLen(%d) = %d, want %d", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestEstimatedDiscoveryProbes(t *testing.T) {
+	tests := []struct {
+		name string
+		opts discoveryOptions
+		want int
+	}{
+		{
+			name: "binary search range",
+			opts: discoveryOptions{MinMTU: 576, MaxMTU: 704},
+			want: 8,
+		},
+		{
+			name: "single value range",
+			opts: discoveryOptions{MinMTU: 1400, MaxMTU: 1400},
+			want: 1,
+		},
+		{
+			name: "linear sweep",
+			opts: discoveryOptions{MinMTU: 1300, MaxMTU: 1450, Step: 20},
+			want: 8,
+		},
+		{
+			name: "plpmtud adds sweep and refinement probes",
+			opts: discoveryOptions{MinMTU: 576, MaxMTU: 704, PLPMTUD: true},
+			want: 38,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := estimatedDiscoveryProbes(tt.opts); got != tt.want {
+				t.Fatalf("estimatedDiscoveryProbes(%+v) = %d, want %d", tt.opts, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestNewMTUDiscovererUsesRateLimit(t *testing.T) {
 	discoverer, err := newMTUDiscoverer(discoveryOptions{
 		Destination:      "127.0.0.1",

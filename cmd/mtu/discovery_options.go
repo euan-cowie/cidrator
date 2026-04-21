@@ -3,7 +3,6 @@ package mtu
 import (
 	"context"
 	"fmt"
-	"math/bits"
 	"os"
 	"time"
 
@@ -212,6 +211,20 @@ func estimatedPLPMTUDPauseBudget(opts discoveryOptions) time.Duration {
 	return time.Duration(sweepSteps-1) * 100 * time.Millisecond
 }
 
+func positiveIntBitLen(n int) int {
+	if n <= 0 {
+		return 0
+	}
+
+	length := 0
+	for n > 0 {
+		length++
+		n >>= 1
+	}
+
+	return length
+}
+
 func estimatedDiscoveryProbes(opts discoveryOptions) int {
 	if opts.Step > 0 {
 		probes := ((opts.MaxMTU - opts.MinMTU) / opts.Step) + 1
@@ -221,7 +234,7 @@ func estimatedDiscoveryProbes(opts discoveryOptions) int {
 		return probes
 	}
 
-	probes := bits.Len(uint(opts.MaxMTU - opts.MinMTU + 1))
+	probes := positiveIntBitLen(opts.MaxMTU - opts.MinMTU + 1)
 	if probes < 1 {
 		probes = 1
 	}
@@ -229,7 +242,7 @@ func estimatedDiscoveryProbes(opts discoveryOptions) int {
 	if opts.PLPMTUD {
 		stepSize := 64
 		plpSweepProbes := (((opts.MaxMTU - opts.MinMTU) / stepSize) + 1) * 3
-		plpRefinementProbes := bits.Len(uint(stepSize)) * 3
+		plpRefinementProbes := positiveIntBitLen(stepSize) * 3
 		plpProbes := plpSweepProbes + plpRefinementProbes
 		if plpProbes < 3 {
 			plpProbes = 3
